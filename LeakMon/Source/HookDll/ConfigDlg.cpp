@@ -305,7 +305,8 @@ BOOL CALLBACK ConfigDlg::SymRegisterCallbackProc64(HANDLE hProcess,
         ConfigDlg* pDlg = (ConfigDlg*)UserContext;
         CString csLoadtext = _T("Loading symbol for file: ");
         csLoadtext += pSybolLoadInfo->FileName;
-        pDlg->m_ProgressDlg.SetDlgItemText( IDC_LOAD_INFO, csLoadtext );
+        if (pDlg->m_ProgressDlg)
+            pDlg->m_ProgressDlg.SetDlgItemText( IDC_LOAD_INFO, csLoadtext );
     }
     return FALSE;
 }

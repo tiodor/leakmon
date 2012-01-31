@@ -387,6 +387,20 @@ LPVOID WINAPI MyHeapReAlloc( HANDLE hHeap,
     return lpNewMem;
 }
 
+LPVOID WINAPI MyVirtualAlloc( LPVOID lpAddress,
+                              SIZE_T dwSize, DWORD flAllocationType,
+                              DWORD flProtect )
+{
+    LPVOID lMem =  pOrgVirtualAlloc( lpAddress, dwSize, flAllocationType, flProtect );
+    CreateCallStack( lMem, dwSize );
+    return lMem;
+}
+
+BOOL WINAPI MyVirtualFree( LPVOID lpAddress, SIZE_T dwSize, DWORD dwFreeType )
+{
+    RemovCallStack( lpAddress );
+    return pOrgVirtualFree( lpAddress, dwSize, dwFreeType );
+}
 
 LPVOID WINAPI MyVirtualAllocEx( HANDLE hProcess, LPVOID lpAddress,
                                 SIZE_T dwSize, DWORD flAllocationType,
@@ -497,15 +511,60 @@ void   WINAPI MyCoTaskMemFree( LPVOID pv )
     RemovCallStack( pv );
 }
 
+LPVOID WINAPI MyMapViewOfFile( HANDLE hFileMappingObject, DWORD dwDesiredAccess,
+    DWORD dwFileOffsetHigh, DWORD dwFileOffsetLow, SIZE_T dwNumberOfBytesToMap )
+{
+    LPVOID lMem = pOrgMapViewOfFile( hFileMappingObject, dwDesiredAccess, dwFileOffsetHigh,
+	dwFileOffsetLow, dwNumberOfBytesToMap);
+    CreateCallStack( lMem, dwNumberOfBytesToMap );
+    return lMem;
+}
+
+LPVOID WINAPI MyMapViewOfFileEx( HANDLE hFileMappingObject, DWORD dwDesiredAccess,
+    DWORD dwFileOffsetHigh, DWORD dwFileOffsetLow, SIZE_T dwNumberOfBytesToMap, LPVOID lpBaseAddress )
+{
+    LPVOID lMem = pOrgMapViewOfFileEx( hFileMappingObject, dwDesiredAccess, dwFileOffsetHigh,
+	dwFileOffsetLow, dwNumberOfBytesToMap, lpBaseAddress);
+    CreateCallStack( lMem, dwNumberOfBytesToMap );
+    return lMem;
+}
+
+BOOL WINAPI MyUnmapViewOfFile( LPCVOID lpBaseAddress )
+{
+    RemovCallStack( (LPVOID)lpBaseAddress );
+    return pOrgUnmapViewOfFile( lpBaseAddress );
+}
+
+INT MyNtMapViewOfSection( HANDLE SectionHandle, HANDLE ProcessHandle, PVOID *BaseAddress,
+    ULONG_PTR ZeroBits, SIZE_T CommitSize, PLARGE_INTEGER SectionOffset, PSIZE_T ViewSize,
+    SECTION_INHERIT InheritDisposition, ULONG AllocationType, ULONG Win32Protect )
+{
+    INT s = pOrgNtMapViewOfSection( SectionHandle, ProcessHandle, BaseAddress, ZeroBits, CommitSize,
+	SectionOffset, ViewSize, InheritDisposition, AllocationType, Win32Protect );
+    CreateCallStack( BaseAddress, *ViewSize );
+    return s;
+}
+
+INT MyNtUnmapViewOfSection( HANDLE ProcessHandle, PVOID BaseAddress )
+{
+    INT s = pOrgNtUnmapViewOfSection( ProcessHandle, BaseAddress );
+    RemovCallStack( (LPVOID)BaseAddress );
+    return s;
+}
+
+
 //////////////////////////////////////////////////////////////////////////
 
 void HookMemAlloc()
 {
     HMODULE hLib = GetModuleHandle( "Kernel32.dll" );
     HMODULE hOleLib = GetModuleHandle( "ole32.dll" );
+    HMODULE hntLib = GetModuleHandle( "ntdll.dll" );
     pOrgHeapAlloc     = (HeapAllocDef)GetProcAddress( hLib, "HeapAlloc" );    
     pOrgHeapFree = (HeapFreeDef)GetProcAddress( hLib, "HeapFree" );
     pOrgHeapReAlloc = (HeapReAllocDef)GetProcAddress( hLib, "HeapReAlloc" );
+    pOrgVirtualAlloc = (VirtualAllocDef)GetProcAddress( hLib, "VirtualAlloc" );    
+    pOrgVirtualFree = (VirtualFreeDef)GetProcAddress( hLib, "VirtualFree" );
     pOrgVirtualAllocEx = (VirtualAllocExDef)GetProcAddress( hLib, "VirtualAllocEx" );    
     pOrgVirtualFreeEx = (VirtualFreeExDef)GetProcAddress( hLib, "VirtualFreeEx" );
 
@@ -520,8 +579,15 @@ void HookMemAlloc()
     pOrgCoTaskMemRealloc = (CoTaskMemReallocDef)GetProcAddress( hOleLib, "CoTaskMemRealloc" );
     pOrgCoTaskMemFree = (CoTaskMemFreeDef)GetProcAddress( hOleLib, "CoTaskMemFree" );
 
+    pOrgMapViewOfFile = (MapViewOfFileDef)GetProcAddress( hLib, "MapViewOfFile" );
+    pOrgMapViewOfFileEx = (MapViewOfFileExDef)GetProcAddress( hLib, "MapViewOfFileEx" );
+    pOrgUnmapViewOfFile = (UnmapViewOfFileDef)GetProcAddress( hLib, "UnmapViewOfFile" );
+    pOrgNtMapViewOfSection = (NtMapViewOfSectionDef)GetProcAddress( hntLib, "NtMapViewOfSection" );
+    pOrgNtUnmapViewOfSection = (NtUnmapViewOfSectionDef)GetProcAddress( hntLib, "NtUnmapViewOfSection" );
 
-    HOOKFUNCDESC stHook[14] = {0};
+
+
+    HOOKFUNCDESC stHook[21] = {0};
     int nIndex = 0;
     stHook[nIndex].pProc = (PROC)MyHeapAlloc;
     stHook[nIndex].szFunc = "HeapAlloc";
@@ -534,10 +600,20 @@ void HookMemAlloc()
     nIndex++;
 
     stHook[nIndex].pProc = (PROC)MyHeapReAlloc;
-    stHook[nIndex].szFunc = "HeapAlloc";
+    stHook[nIndex].szFunc = "HeapReAlloc";
+    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
+    nIndex++;
+    
+    stHook[nIndex].pProc = (PROC)MyVirtualAlloc;
+    stHook[nIndex].szFunc = "VirtualAlloc";
     stHook[nIndex].lpszDllName = _T("Kernel32.dll");
     nIndex++;
 
+    stHook[nIndex].pProc = (PROC)MyVirtualFree;
+    stHook[nIndex].szFunc = "VirtualFree";
+    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
+    nIndex++;
+    
     stHook[nIndex].pProc = (PROC)MyVirtualAllocEx;
     stHook[nIndex].szFunc = "VirtualAllocEx";
     stHook[nIndex].lpszDllName = _T("Kernel32.dll");
@@ -593,12 +669,37 @@ void HookMemAlloc()
     stHook[nIndex].lpszDllName = _T("ole32.dll");
     nIndex++;
 
+    stHook[nIndex].pProc = (PROC)MyMapViewOfFile;
+    stHook[nIndex].szFunc = "MapViewOfFile";
+    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
+    nIndex++;
+ 
+    stHook[nIndex].pProc = (PROC)MyMapViewOfFileEx;
+    stHook[nIndex].szFunc = "MapViewOfFileEx";
+    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
+    nIndex++;
+ 
+    stHook[nIndex].pProc = (PROC)MyUnmapViewOfFile;
+    stHook[nIndex].szFunc = "UnmapViewOfFile";
+    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
+    nIndex++;
+ 
+    stHook[nIndex].pProc = (PROC)MyNtMapViewOfSection;
+    stHook[nIndex].szFunc = "NtMapViewOfSection";
+    stHook[nIndex].lpszDllName = _T("ntdll.dll");
+    nIndex++;
+ 
+    stHook[nIndex].pProc = (PROC)MyNtUnmapViewOfSection;
+    stHook[nIndex].szFunc = "NtUnmapViewOfSection";
+    stHook[nIndex].lpszDllName = _T("ntdll.dll");
+    nIndex++;
+
     HookDynamicLoadedFun( nIndex, stHook );
 }
 
 void RestoreMemHooks()
 {
-    HOOKFUNCDESC stHook[14] = {0};
+    HOOKFUNCDESC stHook[21] = {0};
     int nIndex = 0;
     stHook[nIndex].pProc = (PROC)pOrgHeapAlloc;
     stHook[nIndex].szFunc = "HeapAlloc";
@@ -611,12 +712,22 @@ void RestoreMemHooks()
     nIndex++;
 
     stHook[nIndex].pProc = (PROC)pOrgHeapReAlloc;
-    stHook[nIndex].szFunc = "HeapAlloc";
+    stHook[nIndex].szFunc = "HeapReAlloc";
+    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
+    nIndex++;
+
+    stHook[nIndex].pProc = (PROC)pOrgVirtualAlloc;
+    stHook[nIndex].szFunc = "VirtualAlloc";
     stHook[nIndex].lpszDllName = _T("Kernel32.dll");
     nIndex++;
 
     stHook[nIndex].pProc = (PROC)pOrgVirtualAllocEx;
     stHook[nIndex].szFunc = "VirtualAllocEx";
+    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
+    nIndex++;
+
+    stHook[nIndex].pProc = (PROC)pOrgVirtualFree;
+    stHook[nIndex].szFunc = "VirtualFree";
     stHook[nIndex].lpszDllName = _T("Kernel32.dll");
     nIndex++;
 
@@ -669,6 +780,32 @@ void RestoreMemHooks()
     stHook[nIndex].szFunc = "CoTaskMemFree";
     stHook[nIndex].lpszDllName = _T("ole32.dll");
     nIndex++;
+
+    stHook[nIndex].pProc = (PROC)pOrgMapViewOfFile;
+    stHook[nIndex].szFunc = "MapViewOfFile";
+    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
+    nIndex++;
+
+    stHook[nIndex].pProc = (PROC)pOrgMapViewOfFileEx;
+    stHook[nIndex].szFunc = "MapViewOfFileEx";
+    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
+    nIndex++;
+
+    stHook[nIndex].pProc = (PROC)pOrgUnmapViewOfFile;
+    stHook[nIndex].szFunc = "UnmapViewOfFile";
+    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
+    nIndex++;
+
+    stHook[nIndex].pProc = (PROC)pOrgNtMapViewOfSection;
+    stHook[nIndex].szFunc = "MapViewOfSection";
+    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
+    nIndex++;
+    
+    stHook[nIndex].pProc = (PROC)pOrgNtUnmapViewOfSection;
+    stHook[nIndex].szFunc = "UnmapViewOfSection";
+    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
+    nIndex++;
+
 
     HookDynamicLoadedFun( nIndex, stHook );
 }

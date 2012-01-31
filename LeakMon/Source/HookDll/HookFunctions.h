@@ -45,25 +45,47 @@ typedef struct FILE_ID_DESCRIPTOR {
 typedef LONG LSTATUS;
 
 #endif
+
 // memory allocations
+
+typedef enum _SECTION_INHERIT {
+    ViewShare = 1,
+    ViewUnmap = 2
+} SECTION_INHERIT;
+
 typedef LPVOID ( WINAPI *HeapAllocDef)( IN HANDLE hHeap,IN DWORD dwFlags,IN SIZE_T dwBytes );
 typedef BOOL ( WINAPI *HeapFreeDef)(  HANDLE hHeap,DWORD dwFlags,LPVOID lpMem);
 typedef LPVOID ( WINAPI *HeapReAllocDef)( HANDLE hHeap,DWORD dwFlags,LPVOID lpMem,SIZE_T dwBytes );
+
+typedef LPVOID ( WINAPI *VirtualAllocDef)( LPVOID lpAddress, SIZE_T dwSize, DWORD flAllocationType, DWORD flProtect );
+typedef BOOL ( WINAPI *VirtualFreeDef)( LPVOID lpAddress, SIZE_T dwSize,DWORD dwFreeType );
 typedef LPVOID ( WINAPI *VirtualAllocExDef)( HANDLE hProcess, LPVOID lpAddress, SIZE_T dwSize, DWORD flAllocationType, DWORD flProtect );
 typedef BOOL ( WINAPI *VirtualFreeExDef)( HANDLE hProcess, LPVOID lpAddress, SIZE_T dwSize,DWORD dwFreeType );
 
 typedef LPVOID (WINAPI *CoTaskMemAllocDef)( SIZE_T cb);
 typedef LPVOID (WINAPI *CoTaskMemReallocDef)(LPVOID pv, SIZE_T cb);
 typedef void   (WINAPI *CoTaskMemFreeDef)( LPVOID pv );
+typedef LPVOID (WINAPI *MapViewOfFileDef)( HANDLE hFileMappingObject, DWORD dwDesiredAccess,DWORD dwFileOffsetHigh, DWORD dwFileOffsetLow, SIZE_T dwNumberOfBytesToMap );
+typedef LPVOID (WINAPI *MapViewOfFileExDef)( HANDLE hFileMappingObject, DWORD dwDesiredAccess, DWORD dwFileOffsetHigh, DWORD dwFileOffsetLow, SIZE_T dwNumberOfBytesToMap, LPVOID lpBaseAddress );
+typedef BOOL (WINAPI *UnmapViewOfFileDef)( LPCVOID lpBaseAddress );
+typedef INT (*NtMapViewOfSectionDef)( HANDLE SectionHandle, HANDLE ProcessHandle, PVOID *BaseAddress, ULONG_PTR ZeroBits, SIZE_T CommitSize, PLARGE_INTEGER SectionOffset, PSIZE_T ViewSize,SECTION_INHERIT InheritDisposition, ULONG AllocationType, ULONG Win32Protect );
+typedef INT (*NtUnmapViewOfSectionDef)( HANDLE ProcessHandle, PVOID BaseAddress );
 
 static HeapAllocDef   pOrgHeapAlloc = 0;
 static HeapReAllocDef pOrgHeapReAlloc= 0;
 static HeapFreeDef	  pOrgHeapFree= 0;
+static VirtualAllocDef pOrgVirtualAlloc = 0;
+static VirtualFreeDef  pOrgVirtualFree = 0;
 static VirtualAllocExDef pOrgVirtualAllocEx = 0;
 static VirtualFreeExDef  pOrgVirtualFreeEx = 0;
 static CoTaskMemAllocDef	pOrgCoTaskMemAlloc = 0;
 static CoTaskMemReallocDef	pOrgCoTaskMemRealloc = 0;
 static CoTaskMemFreeDef		pOrgCoTaskMemFree = 0;
+static MapViewOfFileDef		pOrgMapViewOfFile = 0;
+static MapViewOfFileExDef	pOrgMapViewOfFileEx = 0;
+static UnmapViewOfFileDef	pOrgUnmapViewOfFile = 0;
+static NtMapViewOfSectionDef	pOrgNtMapViewOfSection = 0;
+static NtUnmapViewOfSectionDef	pOrgNtUnmapViewOfSection = 0;
 //////////////////////////////////////////////////////////////////////////
 
 //////////////////////////////////////////////////////////////////////////
