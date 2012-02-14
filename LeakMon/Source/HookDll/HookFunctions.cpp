@@ -11,96 +11,96 @@ static char THIS_FILE[] = __FILE__;
 
 #define MakePtr(cast, ptr, AddValue) (cast)((DWORD_PTR)(ptr)+(DWORD_PTR)(AddValue))
 void FindFunction( HANDLE hModule, PIMAGE_IMPORT_DESCRIPTOR pImportDesc, UINT uiCount, 
-				    LPHOOKFUNCDESC paHookArray )
+                    LPHOOKFUNCDESC paHookArray, bool bRestore )
 {
-	PIMAGE_THUNK_DATA pOrigThunk = MakePtr(PIMAGE_THUNK_DATA, hModule, pImportDesc->OriginalFirstThunk);
+    PIMAGE_THUNK_DATA pOrigThunk = MakePtr(PIMAGE_THUNK_DATA, hModule, pImportDesc->OriginalFirstThunk);
 
-	// Get the array pointed to by the pImportDesc->FirstThunk.  This is
-	//  where I will do the actual bash.
-	PIMAGE_THUNK_DATA pRealThunk = MakePtr(PIMAGE_THUNK_DATA, hModule, pImportDesc->FirstThunk);
+    // Get the array pointed to by the pImportDesc->FirstThunk.  This is
+    //  where I will do the actual bash.
+    PIMAGE_THUNK_DATA pRealThunk = MakePtr(PIMAGE_THUNK_DATA, hModule, pImportDesc->FirstThunk);
 
-	// Loop through and look for the one that matches the name.
-	while (pOrigThunk->u1.Function)
-	{
-		BOOL bDoHook = FALSE;
-		UINT i = 0;
+    // Loop through and look for the one that matches the name.
+    while (pOrigThunk->u1.Function)
+    {
+        BOOL bDoHook = FALSE;
+        UINT i = 0;
 
-		// Only look at those that are imported by name, not ordinal.
-		if (IMAGE_ORDINAL_FLAG != (pOrigThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG))
-		{
-			if( paHookArray[i].szFunc )
-			{
-				// Look get the name of this imported function.
-				PIMAGE_IMPORT_BY_NAME pByName = MakePtr(PIMAGE_IMPORT_BY_NAME,
-												hModule, pOrigThunk->u1.AddressOfData );
+        // Only look at those that are imported by name, not ordinal.
+        if (IMAGE_ORDINAL_FLAG != (pOrigThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG))
+        {
+            if( paHookArray[i].szFunc )
+            {
+                // Look get the name of this imported function.
+                PIMAGE_IMPORT_BY_NAME pByName = MakePtr(PIMAGE_IMPORT_BY_NAME,
+                                                hModule, pOrigThunk->u1.AddressOfData );
 
-				// If the name starts with NULL, then just skip out now.
-				if( 0 == pByName->Name[0])
-					continue;
+                // If the name starts with NULL, then just skip out now.
+                if( 0 == pByName->Name[0])
+                    continue;
 
-				for ( i = 0; i<uiCount; i++)
-				{
-					if( strcmpi(paHookArray[i].szFunc, (char*)pByName->Name) == 0 )
-					{
-						PSTR szCurrMod = MakePtr(PSTR, hModule, pImportDesc->Name );
-						CString cs = szCurrMod;
-						if( 0 == cs.CompareNoCase( paHookArray[i].lpszDllName ))
-						{
-							// If the proc is NULL, kick out, otherwise go
-							//  ahead and hook it.
-							if (paHookArray[i].pProc)
-								bDoHook = TRUE;
-							break;
-						}
-						
-					}
-				}
-			}
-		}
-		else
-		{
-			if( paHookArray[i].dwOrdinal )
-			{
-				for ( i = 0; i<uiCount; i++)
-				{
-					if ( paHookArray[i].dwOrdinal == ( pOrigThunk->u1.Ordinal & 0xFFFFFFF ))
-					{
-						PSTR szCurrMod = MakePtr(PSTR, hModule, pImportDesc->Name );
-						CString cs = szCurrMod;
-						if( 0 == cs.CompareNoCase( paHookArray[i].lpszDllName ))
-						{
-							// If the proc is NULL, kick out, otherwise go
-							//  ahead and hook it.
-							if ( paHookArray[i].dwOrdinal )
-								bDoHook = TRUE;
-							break;
-						}
-						
-					}
-				}
-			}
-		}
+                for ( i = 0; i<uiCount; i++)
+                {
+                    if( strcmpi(paHookArray[i].szFunc, (char*)pByName->Name) == 0 )
+                    {
+                        PSTR szCurrMod = MakePtr(PSTR, hModule, pImportDesc->Name );
+                        CString cs = szCurrMod;
+                        if( 0 == cs.CompareNoCase( paHookArray[i].lpszDllName ))
+                        {
+                            // If the proc is NULL, kick out, otherwise go
+                            //  ahead and hook it.
+                            if (paHookArray[i].pProc)
+                                bDoHook = TRUE;
+                            break;
+                        }
+                        
+                    }
+                }
+            }
+        }
+        else
+        {
+            if( paHookArray[i].dwOrdinal )
+            {
+                for ( i = 0; i<uiCount; i++)
+                {
+                    if ( paHookArray[i].dwOrdinal == ( pOrigThunk->u1.Ordinal & 0xFFFFFFF ))
+                    {
+                        PSTR szCurrMod = MakePtr(PSTR, hModule, pImportDesc->Name );
+                        CString cs = szCurrMod;
+                        if( 0 == cs.CompareNoCase( paHookArray[i].lpszDllName ))
+                        {
+                            // If the proc is NULL, kick out, otherwise go
+                            //  ahead and hook it.
+                            if ( paHookArray[i].dwOrdinal )
+                                bDoHook = TRUE;
+                            break;
+                        }
+                        
+                    }
+                }
+            }
+        }
 
-		if (bDoHook)
-		{
-			// I found it.  Now I need to change the protection to
-			//  writable before I do the blast.  Note that I am now
-			//  blasting into the real thunk area!
-			MEMORY_BASIC_INFORMATION mbi_thunk;
-			VirtualQuery(pRealThunk, &mbi_thunk, sizeof(MEMORY_BASIC_INFORMATION));
-			VERIFY(VirtualProtect(mbi_thunk.BaseAddress, mbi_thunk.RegionSize, PAGE_READWRITE, &mbi_thunk.Protect));
+        if (bDoHook)
+        {
+            // I found it.  Now I need to change the protection to
+            //  writable before I do the blast.  Note that I am now
+            //  blasting into the real thunk area!
+            MEMORY_BASIC_INFORMATION mbi_thunk;
+            VirtualQuery(pRealThunk, &mbi_thunk, sizeof(MEMORY_BASIC_INFORMATION));
+            VERIFY(VirtualProtect(mbi_thunk.BaseAddress, mbi_thunk.RegionSize, PAGE_READWRITE, &mbi_thunk.Protect));
 
-			// Do the actual hook.
-			pRealThunk->u1.Function = (DWORD_PTR)paHookArray[i].pProc;
+            // Do the actual hook.
+            pRealThunk->u1.Function = (DWORD_PTR)( (bRestore)?paHookArray[i].pOrigProc:paHookArray[i].pProc);
 
-			// Change the protection back to what it was before I blasted.
-			DWORD dwOldProtect;
-			VERIFY(VirtualProtect(mbi_thunk.BaseAddress, mbi_thunk.RegionSize, mbi_thunk.Protect, &dwOldProtect));
-		}
-		// Increment both tables.
-		pOrigThunk++;
-		pRealThunk++;
-	}
+            // Change the protection back to what it was before I blasted.
+            DWORD dwOldProtect;
+            VERIFY(VirtualProtect(mbi_thunk.BaseAddress, mbi_thunk.RegionSize, mbi_thunk.Protect, &dwOldProtect));
+        }
+        // Increment both tables.
+        pOrigThunk++;
+        pRealThunk++;
+    }
 }
 
 
@@ -112,7 +112,7 @@ PIMAGE_IMPORT_DESCRIPTOR GetNamedImportDescriptor(HMODULE hModule, LPCSTR szImpo
   ASSERT(hModule);
   if (hModule == NULL)
   {   
-	 ASSERT(FALSE);
+     ASSERT(FALSE);
     SetLastErrorEx(ERROR_INVALID_PARAMETER, SLE_ERROR);
     return NULL;
   }
@@ -150,7 +150,7 @@ PIMAGE_IMPORT_DESCRIPTOR GetNamedImportDescriptor(HMODULE hModule, LPCSTR szImpo
 
   if( 0 == szImportMod )
   {
-	  return pImportDesc;
+      return pImportDesc;
   }
   
   // Loop through the import module descriptors looking for the module whose name matches szImportMod.
@@ -174,9 +174,9 @@ PIMAGE_IMPORT_DESCRIPTOR GetNamedImportDescriptor(HMODULE hModule, LPCSTR szImpo
 
 //////////////////////////////////////////////////////////////////////////
 
-BOOL HookDynamicLoadedFun( UINT uiCount, LPHOOKFUNCDESC paHookArray )
+BOOL HookDynamicLoadedFun( UINT uiCount, LPHOOKFUNCDESC paHookArray, bool bRestore )
 {
-	HANDLE hModuleSnap = INVALID_HANDLE_VALUE; 
+    HANDLE hModuleSnap = INVALID_HANDLE_VALUE; 
     MODULEENTRY32 me32; 
     // Take a snapshot of all modules in the specified process. 
     hModuleSnap = CreateToolhelp32Snapshot( TH32CS_SNAPMODULE, GetCurrentProcessId()); 
@@ -191,24 +191,27 @@ BOOL HookDynamicLoadedFun( UINT uiCount, LPHOOKFUNCDESC paHookArray )
         CloseHandle( hModuleSnap );
         return FALSE; 
     }
-	HMODULE hIgnoreDll[2] = {0};
-	hIgnoreDll[0] = LoadLibrary(  _T("dbghelp.dll"));
-	hIgnoreDll[1] = LoadLibrary(  _T("dbgeng.dll"));
-	do 
-	{
-		if( me32.hModule == hIgnoreDll[0] ||
-			me32.hModule == hIgnoreDll[1]  )
-		{
-			continue;
-		}
-		  PIMAGE_IMPORT_DESCRIPTOR pImportDesc = GetNamedImportDescriptor(me32.hModule, 0 );
-		  while (pImportDesc && pImportDesc->Name)
-		  {
-			  FindFunction( me32.hModule, pImportDesc, uiCount, paHookArray );
-			  pImportDesc++;
-		  }
+    HMODULE hIgnoreDll[3] = {0};
+    hIgnoreDll[0] = LoadLibrary(  _T("dbghelp.dll"));
+    hIgnoreDll[1] = LoadLibrary(  _T("dbgeng.dll"));
+    hIgnoreDll[2] = LoadLibrary(  _T("Kernel32.dll"));
+    do 
+    {
+        if( me32.hModule == hIgnoreDll[0] ||
+            me32.hModule == hIgnoreDll[1] ||
+            me32.hModule == hIgnoreDll[2])
+        {
+            continue;
+        }
+        
+        PIMAGE_IMPORT_DESCRIPTOR pImportDesc = GetNamedImportDescriptor(me32.hModule, 0 );
+        while (pImportDesc && pImportDesc->Name)
+        {
+            FindFunction( me32.hModule, pImportDesc, uiCount, paHookArray, bRestore );
+            pImportDesc++;
+        }
     }
     while( Module32Next( hModuleSnap, &me32 ) ); 
     CloseHandle( hModuleSnap ); 
-	return TRUE;
+    return TRUE;
 }

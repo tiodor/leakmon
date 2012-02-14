@@ -13,6 +13,8 @@
 static char THIS_FILE[] = __FILE__;
 #endif
 
+bool g_IS_TEST_APP = false;
+
 /////////////////////////////////////////////////////////////////////////////
 // ConfigDlg dialog
 
@@ -80,8 +82,19 @@ void ConfigDlg::OnPath()
         }
     }
 }
-
-
+#if _DEBUG
+#define TEST_APP_NAME "callfunctions.exe"
+bool SetAppMode()
+{
+    CString csProcessName;
+    ::GetModuleFileName( 0, csProcessName.GetBuffer(MAX_PATH), MAX_PATH );
+    csProcessName.ReleaseBuffer();
+    csProcessName = csProcessName.MakeLower();
+    g_IS_TEST_APP = ( -1 != csProcessName .Find( TEST_APP_NAME ));
+    
+    return true;
+}
+#endif
 
 BOOL ConfigDlg::OnInitDialog() 
 {
@@ -155,11 +168,21 @@ BOOL ConfigDlg::OnInitDialog()
     g_HookType = HT_MEMORY;
     ((CButton*)GetDlgItem( IDC_RADIO_MEM ))->SetCheck( BST_CHECKED );
     SetDlgItemText( IDC_EDIT1, _T("20"));
+
+
+#if _DEBUG
+    SetAppMode();
+    if(g_IS_TEST_APP)
+    {
+        LoadSymbols();        
+        PostMessage( WM_CLOSE,0,0);
+    }
+#endif
     return TRUE;
 }
 
 void ConfigDlg::OnCancel() 
-{	
+{
     CDialog::OnCancel();
 }
 
@@ -167,6 +190,11 @@ typedef BOOL (WINAPI * SymRefreshModuleListDef)( HANDLE hProcess );
 void ConfigDlg::OnOk() 
 {
     CDialog::OnOK();
+    LoadSymbols();
+}
+
+void ConfigDlg::LoadSymbols()
+{
     g_StackDepth = GetDlgItemInt( IDC_EDIT1, NULL, FALSE );
     if( m_bChanged )
     {
@@ -289,7 +317,6 @@ LoadDll:
     //SymRefreshModuleList( GetCurrentProcess());
     m_ProgressDlg.SendMessage( WM_CLOSE );
     WaitForSingleObject( hThread, 10000 );
-
 }
 
 BOOL CALLBACK ConfigDlg::SymRegisterCallbackProc64(HANDLE hProcess,

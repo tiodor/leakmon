@@ -12,6 +12,8 @@
 /////////////////////////////////////////////////////////////////////////////
 // ConfigDlg dialog
 
+extern bool g_IS_TEST_APP;
+
 class ConfigDlg : public CDialog
 {
 // Construction
@@ -45,6 +47,7 @@ protected:
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 
+    void LoadSymbols();
 public:
 
     bool m_bChanged;

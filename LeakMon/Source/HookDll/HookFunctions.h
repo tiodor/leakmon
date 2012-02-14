@@ -91,6 +91,8 @@ static NtUnmapViewOfSectionDef	pOrgNtUnmapViewOfSection = 0;
 //////////////////////////////////////////////////////////////////////////
 //GDI allocation
 //bitmap - LoadBitmapA, LoadBitmapW, CreateBitmap, CreateBitmapIndirect, CreateCompatibleBitmap ,CreateDIBitmap, CreateDIBSection,LoadImage 
+
+
 typedef HBITMAP (WINAPI *LoadBitmapADef)( HINSTANCE hInstance, LPCSTR lpBitmapName);
 typedef HBITMAP (WINAPI *LoadBitmapWDef)( HINSTANCE hInstance, LPCWSTR lpBitmapName);
 typedef HANDLE  (WINAPI *LoadImageADef)( HINSTANCE hInst, LPCSTR name, UINT type,int cx,int cy, UINT fuLoad);
@@ -589,11 +591,12 @@ typedef struct tag_HOOKFUNCDESC
 	LPCSTR szFunc; // The name of the function to hook.
 	DWORD dwOrdinal;
 	PROC pProc;    // The procedure to blast in.
+	PROC pOrigProc;    // The procedure to blast in.
 	LPCTSTR lpszDllName;
 } HOOKFUNCDESC , * LPHOOKFUNCDESC;
 
 
 PIMAGE_IMPORT_DESCRIPTOR GetNamedImportDescriptor( HMODULE hModule, LPCSTR szImportMod );
-BOOL HookDynamicLoadedFun( UINT uiCount, LPHOOKFUNCDESC paHookArray );
+BOOL HookDynamicLoadedFun( UINT uiCount, LPHOOKFUNCDESC paHookArray, bool bRestore = false );
 
 #endif //__HOOK_FUNCTIONS_H__

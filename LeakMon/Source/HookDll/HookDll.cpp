@@ -29,22 +29,33 @@ END_MESSAGE_MAP()
 
 //#define ENABLE_LOG
 /////////////////////////////////////////////////////////////////////////////
-// CHookDllApp construction
-
-
+// helper macro
+#define REGISTER_HOOK(Function, Dll) \
+{ \
+    pOrg##Function = (Function##Def)GetProcAddress(Dll, #Function); \
+    if ( pOrg##Function != NULL )\
+    {\
+    HOOKFUNCDESC entry; \
+    entry.pProc = (PROC)My##Function; \
+    entry.pOrigProc = (PROC)pOrg##Function; \
+    entry.szFunc = #Function; \
+    entry.lpszDllName = _T(#Dll)_T(".dll"); \
+    entry.dwOrdinal = 0; \
+    g_arrHookedFunctions.SetAt(nIndex, entry); \
+    nIndex++;\
+    } \
+    else{ \
+    OutputDebugStringA( "#Leakmon: Failed to get address of function"  #Function ); \
+    }\
+}
 //////////////////////////////////////////////////////////////////////////////////
-
-
-
 
 CHookDllApp::CHookDllApp()
 {
 }
 
-
-#define STACKWALK_MAX_NAMELEN 1024
-CHookDllApp theApp;
-
+//////////////////////////////////////////////////////////////
+//////////global variables and declarations//////////////////
 typedef CArrayEx<DWORD64,DWORD64> STACK_ARRAY;
 struct MEM_INFO
 {
@@ -52,33 +63,17 @@ struct MEM_INFO
     SIZE_T nMemSize;
 };
 
+#define STACKWALK_MAX_NAMELEN 1024
+CHookDllApp theApp;
 CMapEx<LPVOID,LPVOID,MEM_INFO,MEM_INFO> m_MemMap;
 bool g_bTrack = true;
 bool g_bHooked = false;
 HOOK_TYPE_e g_HookType = HT_UNKNOWN;
 int g_StackDepth = 20;
 CCriticalSection SyncObj;
+CArrayEx<HOOKFUNCDESC,HOOKFUNCDESC&> g_arrHookedFunctions;
 
 
-CONTEXT g_stContext = {0};
-
-int filter(unsigned int code, struct _EXCEPTION_POINTERS *ep) 
-{
-    g_stContext = *(ep->ContextRecord);
-    return EXCEPTION_EXECUTE_HANDLER;
-}
-
-void GetContext()
-{
-    __try
-        {
-            int n = 0;
-            throw n;
-        }
-        __except(filter( GetExceptionCode(), GetExceptionInformation()))
-        {
-        }
-}
 
 #ifdef _M_IX86
 void StackDump( LPVOID pMem, DWORD dwBytes)
@@ -426,11 +421,11 @@ BOOL WINAPI MyHeapFree(  HANDLE hHeap,  DWORD dwFlags,  LPVOID lpMem )
 
 HANDLE WINAPI MyGlobalAlloc( UINT uFlags, SIZE_T dwBytes )
 {
-	HANDLE hHandle = pOrgGlobalAlloc( uFlags,  dwBytes );
-	if ( g_HookType == HT_MEMORY )
-		CreateCallStack(hHandle, dwBytes);
-	else
-		CreateCallStack(hHandle, TYPE_MEMORY_HANDLE );
+    HANDLE hHandle = pOrgGlobalAlloc( uFlags,  dwBytes );
+    if ( g_HookType == HT_MEMORY )
+        CreateCallStack(hHandle, dwBytes);
+    else
+        CreateCallStack(hHandle, TYPE_MEMORY_HANDLE );
     return hHandle;
 }
 
@@ -439,10 +434,10 @@ HANDLE WINAPI MyGlobalReAlloc( HGLOBAL hMem, SIZE_T dwBytes, UINT uFlags )
     HANDLE hHandle = pOrgGlobalReAlloc( hMem, dwBytes, uFlags  );
     if( hHandle )
     {
-		if ( g_HookType == HT_MEMORY )
-			CreateCallStack(hHandle, dwBytes);
-		else
-			CreateCallStack(hHandle, TYPE_MEMORY_HANDLE );
+        if ( g_HookType == HT_MEMORY )
+            CreateCallStack(hHandle, dwBytes);
+        else
+            CreateCallStack(hHandle, TYPE_MEMORY_HANDLE );
         RemovCallStack( hMem );
     }
     return hHandle;
@@ -450,19 +445,19 @@ HANDLE WINAPI MyGlobalReAlloc( HGLOBAL hMem, SIZE_T dwBytes, UINT uFlags )
 
 HANDLE WINAPI MyGlobalFree( HGLOBAL hMem )
 {
-	HANDLE hHandle = pOrgGlobalFree( hMem );
-	if ( hHandle == NULL )
-		RemovCallStack( hMem );
-	return hHandle;
+    HANDLE hHandle = pOrgGlobalFree( hMem );
+    if ( hHandle == NULL )
+        RemovCallStack( hMem );
+    return hHandle;
 
 }
 HLOCAL WINAPI MyLocalAlloc( UINT uFlags, SIZE_T uBytes )
 {
     HLOCAL hHandle = pOrgLocalAlloc( uFlags,  uBytes );
-	if ( g_HookType == HT_MEMORY )
-		CreateCallStack(hHandle, uBytes);
-	else
-		CreateCallStack(hHandle, TYPE_MEMORY_HANDLE );
+    if ( g_HookType == HT_MEMORY )
+        CreateCallStack(hHandle, uBytes);
+    else
+        CreateCallStack(hHandle, TYPE_MEMORY_HANDLE );
     return hHandle;
 }
 
@@ -471,10 +466,10 @@ HLOCAL WINAPI MyLocalReAlloc( HLOCAL hMem, SIZE_T uBytes, UINT uFlags )
     HLOCAL hHandle = pOrgLocalReAlloc( hMem, uBytes, uFlags);
     if( hHandle )
     {
-		if ( g_HookType == HT_MEMORY )
-			CreateCallStack(hHandle, uBytes);
-		else
-			CreateCallStack(hHandle, TYPE_MEMORY_HANDLE );
+        if ( g_HookType == HT_MEMORY )
+            CreateCallStack(hHandle, uBytes);
+        else
+            CreateCallStack(hHandle, TYPE_MEMORY_HANDLE );
         RemovCallStack( hMem );
     }
     return hHandle;
@@ -482,10 +477,10 @@ HLOCAL WINAPI MyLocalReAlloc( HLOCAL hMem, SIZE_T uBytes, UINT uFlags )
 
 HLOCAL WINAPI MyLocalFree(HLOCAL hMem )
 {
-	HLOCAL hHandle = pOrgLocalFree(hMem );
-	if ( hHandle == NULL )
-		RemovCallStack( hMem );
-	return hHandle;
+    HLOCAL hHandle = pOrgLocalFree(hMem );
+    if ( hHandle == NULL )
+        RemovCallStack( hMem );
+    return hHandle;
 }
 
 LPVOID WINAPI MyCoTaskMemAlloc( SIZE_T cb)
@@ -515,7 +510,7 @@ LPVOID WINAPI MyMapViewOfFile( HANDLE hFileMappingObject, DWORD dwDesiredAccess,
     DWORD dwFileOffsetHigh, DWORD dwFileOffsetLow, SIZE_T dwNumberOfBytesToMap )
 {
     LPVOID lMem = pOrgMapViewOfFile( hFileMappingObject, dwDesiredAccess, dwFileOffsetHigh,
-	dwFileOffsetLow, dwNumberOfBytesToMap);
+    dwFileOffsetLow, dwNumberOfBytesToMap);
     CreateCallStack( lMem, dwNumberOfBytesToMap );
     return lMem;
 }
@@ -524,7 +519,7 @@ LPVOID WINAPI MyMapViewOfFileEx( HANDLE hFileMappingObject, DWORD dwDesiredAcces
     DWORD dwFileOffsetHigh, DWORD dwFileOffsetLow, SIZE_T dwNumberOfBytesToMap, LPVOID lpBaseAddress )
 {
     LPVOID lMem = pOrgMapViewOfFileEx( hFileMappingObject, dwDesiredAccess, dwFileOffsetHigh,
-	dwFileOffsetLow, dwNumberOfBytesToMap, lpBaseAddress);
+    dwFileOffsetLow, dwNumberOfBytesToMap, lpBaseAddress);
     CreateCallStack( lMem, dwNumberOfBytesToMap );
     return lMem;
 }
@@ -540,7 +535,7 @@ INT MyNtMapViewOfSection( HANDLE SectionHandle, HANDLE ProcessHandle, PVOID *Bas
     SECTION_INHERIT InheritDisposition, ULONG AllocationType, ULONG Win32Protect )
 {
     INT s = pOrgNtMapViewOfSection( SectionHandle, ProcessHandle, BaseAddress, ZeroBits, CommitSize,
-	SectionOffset, ViewSize, InheritDisposition, AllocationType, Win32Protect );
+    SectionOffset, ViewSize, InheritDisposition, AllocationType, Win32Protect );
     CreateCallStack( BaseAddress, *ViewSize );
     return s;
 }
@@ -553,261 +548,44 @@ INT MyNtUnmapViewOfSection( HANDLE ProcessHandle, PVOID BaseAddress )
 }
 
 
-//////////////////////////////////////////////////////////////////////////
-
+const int MEMORY_FUN_NO = 19;
 void HookMemAlloc()
 {
-    HMODULE hLib = GetModuleHandle( "Kernel32.dll" );
-    HMODULE hOleLib = GetModuleHandle( "ole32.dll" );
-    HMODULE hntLib = GetModuleHandle( "ntdll.dll" );
-    pOrgHeapAlloc     = (HeapAllocDef)GetProcAddress( hLib, "HeapAlloc" );    
-    pOrgHeapFree = (HeapFreeDef)GetProcAddress( hLib, "HeapFree" );
-    pOrgHeapReAlloc = (HeapReAllocDef)GetProcAddress( hLib, "HeapReAlloc" );
-    pOrgVirtualAlloc = (VirtualAllocDef)GetProcAddress( hLib, "VirtualAlloc" );    
-    pOrgVirtualFree = (VirtualFreeDef)GetProcAddress( hLib, "VirtualFree" );
-    pOrgVirtualAllocEx = (VirtualAllocExDef)GetProcAddress( hLib, "VirtualAllocEx" );    
-    pOrgVirtualFreeEx = (VirtualFreeExDef)GetProcAddress( hLib, "VirtualFreeEx" );
-
-    pOrgGlobalAlloc = (GlobalAllocDef)GetProcAddress( hLib, "GlobalAlloc" );
-    pOrgGlobalReAlloc = (GlobalReAllocDef)GetProcAddress( hLib, "GlobalReAlloc" );
-    pOrgGlobalFree = (GlobalFreeDef)GetProcAddress( hLib, "GlobalFree" );
-    pOrgLocalAlloc = (LocalAllocDef)GetProcAddress( hLib, "LocalAlloc" );
-    pOrgLocalReAlloc = (LocalReAllocDef)GetProcAddress( hLib, "LocalReAlloc" );
-    pOrgLocalFree = (LocalFreeDef)GetProcAddress( hLib, "LocalFree" );
-
-    pOrgCoTaskMemAlloc = (CoTaskMemAllocDef)GetProcAddress( hOleLib, "CoTaskMemAlloc" );
-    pOrgCoTaskMemRealloc = (CoTaskMemReallocDef)GetProcAddress( hOleLib, "CoTaskMemRealloc" );
-    pOrgCoTaskMemFree = (CoTaskMemFreeDef)GetProcAddress( hOleLib, "CoTaskMemFree" );
-
-    pOrgMapViewOfFile = (MapViewOfFileDef)GetProcAddress( hLib, "MapViewOfFile" );
-    pOrgMapViewOfFileEx = (MapViewOfFileExDef)GetProcAddress( hLib, "MapViewOfFileEx" );
-    pOrgUnmapViewOfFile = (UnmapViewOfFileDef)GetProcAddress( hLib, "UnmapViewOfFile" );
-    pOrgNtMapViewOfSection = (NtMapViewOfSectionDef)GetProcAddress( hntLib, "NtMapViewOfSection" );
-    pOrgNtUnmapViewOfSection = (NtUnmapViewOfSectionDef)GetProcAddress( hntLib, "NtUnmapViewOfSection" );
-
-
-
-    HOOKFUNCDESC stHook[21] = {0};
+    g_arrHookedFunctions.SetSize( MEMORY_FUN_NO ); 
     int nIndex = 0;
-    stHook[nIndex].pProc = (PROC)MyHeapAlloc;
-    stHook[nIndex].szFunc = "HeapAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
+    HMODULE Kernel32 = GetModuleHandle( "Kernel32.dll" );
+    HMODULE Ole32 = GetModuleHandle( "ole32.dll" );
+    HMODULE ntdll = GetModuleHandle( "ntdll.dll" );
 
-    stHook[nIndex].pProc = (PROC)MyHeapFree;
-    stHook[nIndex].szFunc = "HeapFree";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
+    REGISTER_HOOK(HeapAlloc, Kernel32 );
+    REGISTER_HOOK(HeapFree,Kernel32 );
+    REGISTER_HOOK(HeapReAlloc,Kernel32 );
+    REGISTER_HOOK(VirtualAlloc,Kernel32 );    
+    REGISTER_HOOK(VirtualFree,Kernel32 );
+    REGISTER_HOOK(VirtualAllocEx,Kernel32 );    
+    REGISTER_HOOK(VirtualFreeEx,Kernel32 );
+    REGISTER_HOOK(GlobalAlloc,Kernel32 );
+    REGISTER_HOOK(GlobalReAlloc,Kernel32 );
+    REGISTER_HOOK(GlobalFree,Kernel32 );
+    REGISTER_HOOK(LocalAlloc,Kernel32 );
+    REGISTER_HOOK(LocalReAlloc,Kernel32 );
+    REGISTER_HOOK(LocalFree,Kernel32 );
+    REGISTER_HOOK(MapViewOfFile,Kernel32 );
+    REGISTER_HOOK(MapViewOfFileEx,Kernel32 );
+    REGISTER_HOOK(UnmapViewOfFile,Kernel32 );
+    REGISTER_HOOK(CoTaskMemAlloc,Ole32 );
+    REGISTER_HOOK(CoTaskMemRealloc,Ole32 );
+    REGISTER_HOOK(CoTaskMemFree,Ole32 );
+    ///*REGISTER_HOOK( NtMapViewOfSection, ntdll);
+    //REGISTER_HOOK( NtUnmapViewOfSection, ntdll );*/
 
-    stHook[nIndex].pProc = (PROC)MyHeapReAlloc;
-    stHook[nIndex].szFunc = "HeapReAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-    
-    stHook[nIndex].pProc = (PROC)MyVirtualAlloc;
-    stHook[nIndex].szFunc = "VirtualAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyVirtualFree;
-    stHook[nIndex].szFunc = "VirtualFree";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-    
-    stHook[nIndex].pProc = (PROC)MyVirtualAllocEx;
-    stHook[nIndex].szFunc = "VirtualAllocEx";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyVirtualFreeEx;
-    stHook[nIndex].szFunc = "VirtualFreeEx";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGlobalAlloc;
-    stHook[nIndex].szFunc = "GlobalAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGlobalReAlloc;
-    stHook[nIndex].szFunc = "GlobalReAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGlobalFree;
-    stHook[nIndex].szFunc = "GlobalFree";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLocalAlloc;
-    stHook[nIndex].szFunc = "LocalAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLocalReAlloc;
-    stHook[nIndex].szFunc = "LocalReAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLocalFree;
-    stHook[nIndex].szFunc = "LocalFree";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCoTaskMemAlloc;
-    stHook[nIndex].szFunc = "CoTaskMemAlloc";
-    stHook[nIndex].lpszDllName = _T("ole32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCoTaskMemRealloc;
-    stHook[nIndex].szFunc = "CoTaskMemRealloc";
-    stHook[nIndex].lpszDllName = _T("ole32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCoTaskMemFree;
-    stHook[nIndex].szFunc = "CoTaskMemFree";
-    stHook[nIndex].lpszDllName = _T("ole32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyMapViewOfFile;
-    stHook[nIndex].szFunc = "MapViewOfFile";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
- 
-    stHook[nIndex].pProc = (PROC)MyMapViewOfFileEx;
-    stHook[nIndex].szFunc = "MapViewOfFileEx";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
- 
-    stHook[nIndex].pProc = (PROC)MyUnmapViewOfFile;
-    stHook[nIndex].szFunc = "UnmapViewOfFile";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
- 
-    stHook[nIndex].pProc = (PROC)MyNtMapViewOfSection;
-    stHook[nIndex].szFunc = "NtMapViewOfSection";
-    stHook[nIndex].lpszDllName = _T("ntdll.dll");
-    nIndex++;
- 
-    stHook[nIndex].pProc = (PROC)MyNtUnmapViewOfSection;
-    stHook[nIndex].szFunc = "NtUnmapViewOfSection";
-    stHook[nIndex].lpszDllName = _T("ntdll.dll");
-    nIndex++;
-
-    HookDynamicLoadedFun( nIndex, stHook );
+    ASSERT( nIndex == MEMORY_FUN_NO );
+    HookDynamicLoadedFun( MEMORY_FUN_NO, g_arrHookedFunctions.GetData());
 }
 
-void RestoreMemHooks()
+void RestoreHooks()
 {
-    HOOKFUNCDESC stHook[21] = {0};
-    int nIndex = 0;
-    stHook[nIndex].pProc = (PROC)pOrgHeapAlloc;
-    stHook[nIndex].szFunc = "HeapAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgHeapFree;
-    stHook[nIndex].szFunc = "HeapFree";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgHeapReAlloc;
-    stHook[nIndex].szFunc = "HeapReAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgVirtualAlloc;
-    stHook[nIndex].szFunc = "VirtualAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgVirtualAllocEx;
-    stHook[nIndex].szFunc = "VirtualAllocEx";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgVirtualFree;
-    stHook[nIndex].szFunc = "VirtualFree";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgVirtualFreeEx;
-    stHook[nIndex].szFunc = "VirtualFreeEx";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGlobalAlloc;
-    stHook[nIndex].szFunc = "GlobalAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGlobalReAlloc;
-    stHook[nIndex].szFunc = "GlobalReAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGlobalFree;
-    stHook[nIndex].szFunc = "GlobalFree";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLocalAlloc;
-    stHook[nIndex].szFunc = "LocalAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLocalReAlloc;
-    stHook[nIndex].szFunc = "LocalReAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLocalFree;
-    stHook[nIndex].szFunc = "LocalFree";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCoTaskMemAlloc;
-    stHook[nIndex].szFunc = "CoTaskMemAlloc";
-    stHook[nIndex].lpszDllName = _T("ole32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCoTaskMemRealloc;
-    stHook[nIndex].szFunc = "CoTaskMemRealloc";
-    stHook[nIndex].lpszDllName = _T("ole32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCoTaskMemFree;
-    stHook[nIndex].szFunc = "CoTaskMemFree";
-    stHook[nIndex].lpszDllName = _T("ole32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgMapViewOfFile;
-    stHook[nIndex].szFunc = "MapViewOfFile";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgMapViewOfFileEx;
-    stHook[nIndex].szFunc = "MapViewOfFileEx";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgUnmapViewOfFile;
-    stHook[nIndex].szFunc = "UnmapViewOfFile";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgNtMapViewOfSection;
-    stHook[nIndex].szFunc = "MapViewOfSection";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-    
-    stHook[nIndex].pProc = (PROC)pOrgNtUnmapViewOfSection;
-    stHook[nIndex].szFunc = "UnmapViewOfSection";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-
-    HookDynamicLoadedFun( nIndex, stHook );
+    HookDynamicLoadedFun( g_arrHookedFunctions.GetCount(), g_arrHookedFunctions.GetData(), true );
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -815,6 +593,21 @@ void RestoreMemHooks()
 //////////////////////////////////////////////////////////////////////////
 
 // bitmap
+
+HANDLE WINAPI MyLoadImageA(HINSTANCE hInst,LPCSTR name,UINT type,int cx,int cy,UINT fuLoad)
+{
+    HANDLE hImg = pOrgLoadImageA(hInst,name,type,cx,cy,fuLoad);
+    CreateCallStack( hImg , 0 );
+    return hImg;
+}
+
+HANDLE WINAPI MyLoadImageW( HINSTANCE hInst,LPCWSTR name,UINT type,int cx,int cy,UINT fuLoad)
+{
+    HANDLE hImg = pOrgLoadImageW(hInst,name,type,cx,cy,fuLoad);
+    CreateCallStack( hImg , 0 );
+    return hImg;
+}
+
 HBITMAP WINAPI MyLoadBitmapA( HINSTANCE hInstance, LPCSTR lpBitmapName)
 {
     HBITMAP hBmp = pOrgLoadBitmapA( hInstance, lpBitmapName );
@@ -1736,1015 +1529,130 @@ HPALETTE WINAPI MyCreatePalette( CONST LOGPALETTE * plpal )
 }
 
 
+const int GDI_FUNC_NO = 84;
 void HookGDIAlloc()
 {
-    HMODULE hGDIModule = LoadLibrary( "Gdi32.dll" );
-    HMODULE hUser32Module = LoadLibrary( "User32.dll" );
-    HMODULE hShell32Module = LoadLibrary( "Shell32.dll" );
+    HMODULE Gdi32 = LoadLibrary( "Gdi32.dll" );
+    HMODULE User32 = LoadLibrary( "User32.dll" );
+    HMODULE Shell32 = LoadLibrary( "Shell32.dll" );
     
+    g_arrHookedFunctions.SetSize( GDI_FUNC_NO ); 
+    int nIndex = 0;
     // Bitmap functions
-    pOrgLoadBitmapA = (LoadBitmapADef)GetProcAddress( hUser32Module, "LoadBitmapA" );
-    pOrgLoadBitmapW = (LoadBitmapWDef)GetProcAddress( hUser32Module, "LoadBitmapW" );
-    pOrgLoadImageA = (LoadImageADef)GetProcAddress( hUser32Module, "LoadImageA" );
-    pOrgLoadImageW = (LoadImageWDef)GetProcAddress( hUser32Module, "LoadImageW" );
-    pOrgCreateBitmap = (CreateBitmapDef)GetProcAddress( hGDIModule, "CreateBitmap" );
-    pOrgCreateBitmapIndirect = (CreateBitmapIndirectDef)GetProcAddress( hGDIModule, "CreateBitmapIndirect" );
-    pOrgCreateCompatibleBitmap = (CreateCompatibleBitmapDef)GetProcAddress( hGDIModule, "CreateCompatibleBitmap" );
-    pOrgCreateDIBitmap = (CreateDIBitmapDef)GetProcAddress( hGDIModule, "CreateDIBitmap" );
-    pOrgCreateDIBSection = (CreateDIBSectionDef)GetProcAddress( hGDIModule, "CreateDIBSection" );
-    pOrgCreateDiscardableBitmap =  (CreateDiscardableBitmapDef)GetProcAddress( hGDIModule, "CreateDiscardableBitmap" );
-    pOrgCopyImage = (CopyImageDef)GetProcAddress( hUser32Module, "CopyImage" );
-    pOrgGetIconInfo = (GetIconInfoDef)GetProcAddress( hUser32Module, "GetIconInfo" );
-    pOrgGetIconInfoExA = (GetIconInfoExADef)GetProcAddress( hUser32Module, "GetIconInfoExA" );
-    pOrgGetIconInfoExW = (GetIconInfoExWDef)GetProcAddress( hUser32Module, "GetIconInfoExA" );
-    pOrgDeleteObject = (DeleteObjectDef)GetProcAddress( hGDIModule, "DeleteObject" );
+    REGISTER_HOOK(LoadBitmapA,User32 );
+    REGISTER_HOOK(LoadBitmapW,User32 );
+    REGISTER_HOOK(LoadImageA,User32 );
+    REGISTER_HOOK(LoadImageW,User32 );
+    REGISTER_HOOK(CreateBitmap,Gdi32 );
+    REGISTER_HOOK(CreateBitmapIndirect,Gdi32 );
+    REGISTER_HOOK(CreateCompatibleBitmap,Gdi32 );
+    REGISTER_HOOK(CreateDIBitmap,Gdi32 );
+    REGISTER_HOOK(CreateDIBSection,Gdi32 );
+    REGISTER_HOOK(CreateDiscardableBitmap,Gdi32 );
+    REGISTER_HOOK(CopyImage,User32 );
+    REGISTER_HOOK(GetIconInfo,User32 );
+    REGISTER_HOOK(GetIconInfoExA,User32 );
+    REGISTER_HOOK(GetIconInfoExA,User32 );
+    REGISTER_HOOK(DeleteObject,Gdi32 );
     
     //ICONS
-    pOrgCopyIcon = (CopyIconDef)GetProcAddress( hUser32Module, "CopyIcon" );
-    pOrgCreateIcon = (CreateIconDef)GetProcAddress( hUser32Module, "CreateIcon" );
-    pOrgCreateIconFromResource = (CreateIconFromResourceDef)GetProcAddress( hUser32Module, "CreateIconFromResource" );
-    pOrgCreateIconFromResourceEx = (CreateIconFromResourceExDef)GetProcAddress( hUser32Module, "CreateIconFromResourceEx" );
-    pOrgCreateIconIndirect = (CreateIconIndirectDef)GetProcAddress( hUser32Module, "CreateIconIndirect" );
-    pOrgDestroyIcon = (DestroyIconDef)GetProcAddress( hUser32Module, "DestroyIcon" );
-    pOrgDuplicateIcon = (DuplicateIconDef)GetProcAddress( hShell32Module, "DuplicateIcon" );
-    pOrgExtractAssociatedIconA = (ExtractAssociatedIconADef)GetProcAddress( hShell32Module, "ExtractAssociatedIconA" );
-    pOrgExtractAssociatedIconW = (ExtractAssociatedIconWDef)GetProcAddress( hShell32Module, "ExtractAssociatedIconW" );
-    pOrgExtractAssociatedIconExA = (ExtractAssociatedIconExADef)GetProcAddress( hShell32Module, "ExtractAssociatedIconExA" );
-    pOrgExtractAssociatedIconExW = (ExtractAssociatedIconExWDef)GetProcAddress( hShell32Module, "ExtractAssociatedIconExW" );
-    pOrgExtractIconA = (ExtractIconADef)GetProcAddress( hShell32Module, "ExtractIconA" );
-    pOrgExtractIconW = (ExtractIconWDef)GetProcAddress( hShell32Module, "ExtractIconW" );
-    pOrgExtractIconExA = (ExtractIconExADef)GetProcAddress( hShell32Module, "ExtractIconExA" );
-    pOrgExtractIconExW = (ExtractIconExWDef)GetProcAddress( hShell32Module, "ExtractIconExW" );
-    pOrgLoadIconA = (LoadIconADef)GetProcAddress( hUser32Module, "LoadIconA" );
-    pOrgLoadIconW = (LoadIconWDef)GetProcAddress( hUser32Module, "LoadIconW" );
-    pOrgPrivateExtractIconsA = (PrivateExtractIconsADef)GetProcAddress( hUser32Module, "PrivateExtractIconsA" );
-    pOrgPrivateExtractIconsW = (PrivateExtractIconsWDef)GetProcAddress( hUser32Module, "PrivateExtractIconsW" );
+    REGISTER_HOOK(CopyIcon,User32 );
+    REGISTER_HOOK(CreateIcon,User32 );
+    REGISTER_HOOK(CreateIconFromResource,User32 );
+    REGISTER_HOOK(CreateIconFromResourceEx,User32 );
+    REGISTER_HOOK(CreateIconIndirect,User32 );
+    REGISTER_HOOK(DestroyIcon,User32 );
+    REGISTER_HOOK(DuplicateIcon,Shell32 );
+    REGISTER_HOOK(ExtractAssociatedIconA,Shell32 );
+    REGISTER_HOOK(ExtractAssociatedIconW,Shell32 );
+    REGISTER_HOOK(ExtractAssociatedIconExA,Shell32 );
+    REGISTER_HOOK(ExtractAssociatedIconExW,Shell32 );
+    REGISTER_HOOK(ExtractIconA,Shell32 );
+    REGISTER_HOOK(ExtractIconW,Shell32 );
+    REGISTER_HOOK(ExtractIconExA,Shell32 );
+    REGISTER_HOOK(ExtractIconExW,Shell32 );
+    REGISTER_HOOK(LoadIconA,User32 );
+    REGISTER_HOOK(LoadIconW,User32 );
+    REGISTER_HOOK(PrivateExtractIconsA,User32 );
+    REGISTER_HOOK(PrivateExtractIconsW,User32 );
 
     // Cursor
-    pOrgCreateCursor = (CreateCursorDef)GetProcAddress( hUser32Module, "CreateCursor" );
-    pOrgLoadCursorA = (LoadCursorADef)GetProcAddress( hUser32Module, "LoadCursorA" );
-    pOrgLoadCursorW = (LoadCursorWDef)GetProcAddress( hUser32Module, "LoadCursorW" );
-    pOrgLoadCursorFromFileA = (LoadCursorFromFileADef)GetProcAddress( hUser32Module, "LoadCursorFromFileA" );
-    pOrgLoadCursorFromFileW = (LoadCursorFromFileWDef)GetProcAddress( hUser32Module, "LoadCursorFromFileW" );
-    pOrgDestroyCursor = (DestroyCursorDef)GetProcAddress( hUser32Module, "DestroyCursor" );
+    REGISTER_HOOK(CreateCursor,User32 );
+    REGISTER_HOOK(LoadCursorA,User32 );
+    REGISTER_HOOK(LoadCursorW,User32 );
+    REGISTER_HOOK(LoadCursorFromFileA,User32 );
+    REGISTER_HOOK(LoadCursorFromFileW,User32 );
+    REGISTER_HOOK(DestroyCursor,User32 );
 
 
     // brush
-    pOrgCreateBrushIndirect = (CreateBrushIndirectDef)GetProcAddress( hGDIModule, "CreateBrushIndirect" );
-    pOrgCreateSolidBrush = (CreateSolidBrushDef)GetProcAddress( hGDIModule, "CreateSolidBrush" );
-    pOrgCreatePatternBrush = (CreatePatternBrushDef)GetProcAddress( hGDIModule, "CreatePatternBrush" );
-    pOrgCreateDIBPatternBrush = (CreateDIBPatternBrushDef)GetProcAddress( hGDIModule, "CreateDIBPatternBrush" );
-    pOrgCreateDIBPatternBrushPt = (CreateDIBPatternBrushPtDef)GetProcAddress( hGDIModule, "CreateDIBPatternBrushPt" );
-    pOrgCreateHatchBrush = (CreateHatchBrushDef)GetProcAddress( hGDIModule, "CreateHatchBrush" );
+    REGISTER_HOOK(CreateBrushIndirect,Gdi32 );
+    REGISTER_HOOK(CreateSolidBrush,Gdi32 );
+    REGISTER_HOOK(CreatePatternBrush,Gdi32 );
+    REGISTER_HOOK(CreateDIBPatternBrush,Gdi32 );
+    REGISTER_HOOK(CreateDIBPatternBrushPt,Gdi32 );
+    REGISTER_HOOK(CreateHatchBrush,Gdi32 );
 
     // DC
-    pOrgCreateCompatibleDC = (CreateCompatibleDCDef)GetProcAddress( hGDIModule, "CreateCompatibleDC" );
-    pOrgCreateDCA = (CreateDCADef)GetProcAddress( hGDIModule, "CreateDCA" );
-    pOrgCreateDCW = (CreateDCWDef)GetProcAddress( hGDIModule, "CreateDCW" );
-    pOrgCreateICA = (CreateICADef)GetProcAddress( hGDIModule, "CreateICA" );
-    pOrgCreateICW = (CreateICWDef)GetProcAddress( hGDIModule, "CreateICW" );
-    pOrgGetDC	  = (GetDCDef)GetProcAddress( hUser32Module, "GetDC" );
-    pOrgGetDCEx   = (GetDCExDef)GetProcAddress( hUser32Module, "GetDCEx" );
-    pOrgGetWindowDC = (GetWindowDCDef)GetProcAddress( hUser32Module, "GetWindowDC" );
-    pOrgReleaseDC = (ReleaseDCDef)GetProcAddress( hUser32Module, "ReleaseDC" );
-    pOrgDeleteDC = (DeleteDCDef)GetProcAddress( hGDIModule, "DeleteDC" );
+    REGISTER_HOOK(CreateCompatibleDC,Gdi32 );
+    REGISTER_HOOK(CreateDCA,Gdi32 );
+    REGISTER_HOOK(CreateDCW,Gdi32 );
+    REGISTER_HOOK(CreateICA,Gdi32 );
+    REGISTER_HOOK(CreateICW,Gdi32 );
+    REGISTER_HOOK(GetDC,User32 );
+    REGISTER_HOOK(GetDCEx,User32 );
+    REGISTER_HOOK(GetWindowDC,User32 );
+    REGISTER_HOOK(ReleaseDC,User32 );
+    REGISTER_HOOK(DeleteDC,Gdi32 );
     
 
     // FONT
-    pOrgCreateFontA = (CreateFontADef)GetProcAddress( hGDIModule, "CreateFontA" );
-    pOrgCreateFontW = (CreateFontWDef)GetProcAddress( hGDIModule, "CreateFontW" );
-    pOrgCreateFontIndirectA = (CreateFontIndirectADef)GetProcAddress( hGDIModule, "CreateFontIndirectA" );
-    pOrgCreateFontIndirectW = (CreateFontIndirectWDef)GetProcAddress( hGDIModule, "CreateFontIndirectW" );
+    REGISTER_HOOK(CreateFontA,Gdi32 );
+    REGISTER_HOOK(CreateFontW,Gdi32 );
+    REGISTER_HOOK(CreateFontIndirectA,Gdi32 );
+    REGISTER_HOOK(CreateFontIndirectW,Gdi32 );
 
     // Metafile
-    pOrgCreateMetaFileA = (CreateMetaFileADef)GetProcAddress( hGDIModule, "CreateMetaFileA" );
-    pOrgCreateMetaFileW = (CreateMetaFileWDef)GetProcAddress( hGDIModule, "CreateMetaFileW" );
-    pOrgCreateEnhMetaFileA = (CreateEnhMetaFileADef)GetProcAddress( hGDIModule, "CreateEnhMetaFileA" );
-    pOrgCreateEnhMetaFileW = (CreateEnhMetaFileWDef)GetProcAddress( hGDIModule, "CreateEnhMetaFileW" );
-    pOrgGetEnhMetaFileA = (GetEnhMetaFileADef)GetProcAddress( hGDIModule, "GetEnhMetaFileA" );
-    pOrgGetEnhMetaFileW = (GetEnhMetaFileWDef)GetProcAddress( hGDIModule, "GetEnhMetaFileW" );
-    pOrgGetMetaFileA = (GetMetaFileADef)GetProcAddress( hGDIModule, "GetMetaFileA" );
-    pOrgGetMetaFileW = (GetMetaFileWDef)GetProcAddress( hGDIModule, "GetMetaFileW" );
-    pOrgDeleteMetaFile = (DeleteMetaFileDef)GetProcAddress( hGDIModule, "DeleteMetaFile" );
-    pOrgDeleteEnhMetaFile = (DeleteEnhMetaFileDef)GetProcAddress( hGDIModule, "DeleteEnhMetaFile" );
-    pOrgCopyEnhMetaFileA = (CopyEnhMetaFileADef)GetProcAddress( hGDIModule, "CopyEnhMetaFileA" );
-    pOrgCopyEnhMetaFileW = (CopyEnhMetaFileWDef)GetProcAddress( hGDIModule, "CopyEnhMetaFileW" );
-    pOrgCloseEnhMetaFile = (CloseEnhMetaFileDef)GetProcAddress( hGDIModule, "CloseEnhMetaFile" );
-    pOrgCloseMetaFile = (CloseMetaFileDef)GetProcAddress( hGDIModule, "CloseMetaFile" );
+    REGISTER_HOOK(CreateMetaFileA,Gdi32 );
+    REGISTER_HOOK(CreateMetaFileW,Gdi32 );
+    REGISTER_HOOK(CreateEnhMetaFileA,Gdi32 );
+    REGISTER_HOOK(CreateEnhMetaFileW,Gdi32 );
+    REGISTER_HOOK(GetEnhMetaFileA,Gdi32 );
+    REGISTER_HOOK(GetEnhMetaFileW,Gdi32 );
+    REGISTER_HOOK(GetMetaFileA,Gdi32 );
+    REGISTER_HOOK(GetMetaFileW,Gdi32 );
+    REGISTER_HOOK(DeleteMetaFile,Gdi32 );
+    REGISTER_HOOK(DeleteEnhMetaFile,Gdi32 );
+    REGISTER_HOOK(CopyEnhMetaFileA,Gdi32 );
+    REGISTER_HOOK(CopyEnhMetaFileW,Gdi32 );
+    REGISTER_HOOK(CloseEnhMetaFile,Gdi32 );
+    REGISTER_HOOK(CloseMetaFile,Gdi32 );
 
     //Pen
-    pOrgCreatePen = (CreatePenDef)GetProcAddress( hGDIModule, "CreatePen" );
-    pOrgCreatePenIndirect = (CreatePenIndirectDef)GetProcAddress( hGDIModule, "CreatePenIndirect" );
-    pOrgExtCreatePen = (ExtCreatePenDef)GetProcAddress( hGDIModule, "ExtCreatePen" );
+    REGISTER_HOOK(CreatePen,Gdi32 );
+    REGISTER_HOOK(CreatePenIndirect,Gdi32 );
+    REGISTER_HOOK(ExtCreatePen,Gdi32 );
 
     //region
-    pOrgPathToRegion = (PathToRegionDef)GetProcAddress( hGDIModule, "PathToRegion" );
-    pOrgCreateEllipticRgn = (CreateEllipticRgnDef)GetProcAddress( hGDIModule, "CreateEllipticRgn" );
-    pOrgCreateEllipticRgnIndirect = (CreateEllipticRgnIndirectDef)GetProcAddress( hGDIModule, "CreateEllipticRgnIndirect" );
-    pOrgCreatePolygonRgn = (CreatePolygonRgnDef)GetProcAddress( hGDIModule, "CreatePolygonRgn" );
-    pOrgCreatePolyPolygonRgn = (CreatePolyPolygonRgnDef)GetProcAddress( hGDIModule, "CreatePolyPolygonRgn" );
-    pOrgCreateRectRgn = (CreateRectRgnDef)GetProcAddress( hGDIModule, "CreateRectRgn" );
-    pOrgCreateRectRgnIndirect = (CreateRectRgnIndirectDef)GetProcAddress( hGDIModule, "CreateRectRgnIndirect" );
-    pOrgCreateRoundRectRgn = (CreateRoundRectRgnDef)GetProcAddress( hGDIModule, "CreateRoundRectRgn" );
-    pOrgExtCreateRegion = (ExtCreateRegionDef)GetProcAddress( hGDIModule, "ExtCreateRegion" );
+    REGISTER_HOOK(PathToRegion,Gdi32 );
+    REGISTER_HOOK(CreateEllipticRgn,Gdi32 );
+    REGISTER_HOOK(CreateEllipticRgnIndirect,Gdi32 );
+    REGISTER_HOOK(CreatePolygonRgn,Gdi32 );
+    REGISTER_HOOK(CreatePolyPolygonRgn,Gdi32 );
+    REGISTER_HOOK(CreateRectRgn,Gdi32 );
+    REGISTER_HOOK(CreateRectRgnIndirect,Gdi32 );
+    REGISTER_HOOK(CreateRoundRectRgn,Gdi32 );
+    REGISTER_HOOK(ExtCreateRegion,Gdi32 );
 
     //palette
-    pOrgCreateHalftonePalette = (CreateHalftonePaletteDef)GetProcAddress( hGDIModule, "CreateHalftonePalette" );
-    pOrgCreatePalette = (CreatePaletteDef)GetProcAddress( hGDIModule, "CreatePalette" );
-
-    HOOKFUNCDESC stHook[86] = {0};
-    int nIndex = 0;
-    stHook[nIndex].pProc = (PROC)MyLoadBitmapA;
-    stHook[nIndex].szFunc = "LoadBitmapA";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLoadBitmapW;
-    stHook[nIndex].szFunc = "LoadBitmapW";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateBitmap;
-    stHook[nIndex].szFunc = "CreateBitmap";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateBitmapIndirect;
-    stHook[nIndex].szFunc = "CreateBitmapIndirect";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateCompatibleBitmap;
-    stHook[nIndex].szFunc = "CreateCompatibleBitmap";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateDIBitmap;
-    stHook[nIndex].szFunc = "CreateDIBitmap";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateDIBSection;
-    stHook[nIndex].szFunc = "CreateDIBSection";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateDiscardableBitmap;
-    stHook[nIndex].szFunc = "CreateDiscardableBitmap";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCopyImage;
-    stHook[nIndex].szFunc = "CopyImage";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGetIconInfo;
-    stHook[nIndex].szFunc = "GetIconInfo";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGetIconInfoExA;
-    stHook[nIndex].szFunc = "GetIconInfoExA";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGetIconInfoExW;
-    stHook[nIndex].szFunc = "GetIconInfoExW";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDeleteObject;
-    stHook[nIndex].szFunc = "DeleteObject";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    //ICONS
-    stHook[nIndex].pProc = (PROC)MyCopyIcon;
-    stHook[nIndex].szFunc = "CopyIcon";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateIcon;
-    stHook[nIndex].szFunc = "CreateIcon";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateIconFromResource;
-    stHook[nIndex].szFunc = "CreateIconFromResource";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateIconFromResourceEx;
-    stHook[nIndex].szFunc = "CreateIconFromResourceEx";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateIconIndirect;
-    stHook[nIndex].szFunc = "CreateIconIndirect";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDuplicateIcon;
-    stHook[nIndex].szFunc = "DuplicateIcon";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDestroyIcon;
-    stHook[nIndex].szFunc = "DestroyIcon";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyExtractAssociatedIconA;
-    stHook[nIndex].szFunc = "ExtractAssociatedIconA";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyExtractAssociatedIconW;
-    stHook[nIndex].szFunc = "ExtractAssociatedIconW";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyExtractAssociatedIconExA;
-    stHook[nIndex].szFunc = "ExtractAssociatedIconExA";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyExtractAssociatedIconExW;
-    stHook[nIndex].szFunc = "ExtractAssociatedIconExW";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyExtractIconA;
-    stHook[nIndex].szFunc = "ExtractIconA";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
+    REGISTER_HOOK(CreateHalftonePalette,Gdi32 );
+    REGISTER_HOOK(CreatePalette,Gdi32 );
 
     
-    stHook[nIndex].pProc = (PROC)MyExtractIconW;
-    stHook[nIndex].szFunc = "ExtractIconW";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
 
-    stHook[nIndex].pProc = (PROC)MyExtractIconExA;
-    stHook[nIndex].szFunc = "ExtractIconExA";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
+    ASSERT( nIndex == GDI_FUNC_NO );
+    HookDynamicLoadedFun( GDI_FUNC_NO, g_arrHookedFunctions.GetData());
 
-    stHook[nIndex].pProc = (PROC)MyExtractIconExW;
-    stHook[nIndex].szFunc = "ExtractIconExW";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLoadIconA;
-    stHook[nIndex].szFunc = "LoadIconA";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLoadIconW;
-    stHook[nIndex].szFunc = "LoadIconW";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyPrivateExtractIconsA;
-    stHook[nIndex].szFunc = "PrivateExtractIconsA";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyPrivateExtractIconsW;
-    stHook[nIndex].szFunc = "PrivateExtractIconsW";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    // Cursor
-    stHook[nIndex].pProc = (PROC)MyCreateCursor;
-    stHook[nIndex].szFunc = "CreateCursor";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLoadCursorA;
-    stHook[nIndex].szFunc = "LoadCursorA";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLoadCursorW;
-    stHook[nIndex].szFunc = "LoadCursorW";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLoadCursorFromFileA;
-    stHook[nIndex].szFunc = "LoadCursorFromFileA";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLoadCursorFromFileW;
-    stHook[nIndex].szFunc = "LoadCursorFromFileW";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDestroyCursor;
-    stHook[nIndex].szFunc = "DestroyCursor";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-
-    // brush
-    stHook[nIndex].pProc = (PROC)MyCreateBrushIndirect;
-    stHook[nIndex].szFunc = "CreateBrushIndirect";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateSolidBrush;
-    stHook[nIndex].szFunc = "CreateSolidBrush";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreatePatternBrush;
-    stHook[nIndex].szFunc = "CreatePatternBrush";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateDIBPatternBrush;
-    stHook[nIndex].szFunc = "CreateDIBPatternBrush";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateDIBPatternBrushPt;
-    stHook[nIndex].szFunc = "CreateDIBPatternBrushPt";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateHatchBrush;
-    stHook[nIndex].szFunc = "CreateHatchBrush";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    // DC creation
-    stHook[nIndex].pProc = (PROC)MyCreateCompatibleDC;
-    stHook[nIndex].szFunc = "CreateCompatibleDC";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateDCA;
-    stHook[nIndex].szFunc = "CreateDCA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateDCW;
-    stHook[nIndex].szFunc = "CreateDCW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateICA;
-    stHook[nIndex].szFunc = "CreateICA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateICW;
-    stHook[nIndex].szFunc = "CreateICW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGetDC;
-    stHook[nIndex].szFunc = "GetDC";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGetDCEx;
-    stHook[nIndex].szFunc = "GetDCEx";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGetWindowDC;
-    stHook[nIndex].szFunc = "GetWindowDC";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyReleaseDC;
-    stHook[nIndex].szFunc = "ReleaseDC";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDeleteDC;
-    stHook[nIndex].szFunc = "DeleteDC";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    //Font
-    stHook[nIndex].pProc = (PROC)MyCreateFontA;
-    stHook[nIndex].szFunc = "CreateFontA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateFontW;
-    stHook[nIndex].szFunc = "CreateFontW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-    
-    stHook[nIndex].pProc = (PROC)MyCreateFontIndirectA;
-    stHook[nIndex].szFunc = "CreateFontIndirectA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateFontIndirectW;
-    stHook[nIndex].szFunc = "CreateFontIndirectW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    // Meta file
-    stHook[nIndex].pProc = (PROC)MyCreateMetaFileA;
-    stHook[nIndex].szFunc = "CreateMetaFileA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateMetaFileW;
-    stHook[nIndex].szFunc = "CreateMetaFileW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateEnhMetaFileA;
-    stHook[nIndex].szFunc = "CreateEnhMetaFileA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateEnhMetaFileW;
-    stHook[nIndex].szFunc = "CreateEnhMetaFileW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGetEnhMetaFileA;
-    stHook[nIndex].szFunc = "GetEnhMetaFileA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGetEnhMetaFileW;
-    stHook[nIndex].szFunc = "GetEnhMetaFileW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGetMetaFileA;
-    stHook[nIndex].szFunc = "GetMetaFileA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGetMetaFileW;
-    stHook[nIndex].szFunc = "GetMetaFileW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDeleteMetaFile;
-    stHook[nIndex].szFunc = "DeleteMetaFile";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDeleteEnhMetaFile;
-    stHook[nIndex].szFunc = "DeleteEnhMetaFile";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCopyEnhMetaFileA;
-    stHook[nIndex].szFunc = "CopyEnhMetaFileA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCopyEnhMetaFileW;
-    stHook[nIndex].szFunc = "CopyEnhMetaFileW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCloseEnhMetaFile;
-    stHook[nIndex].szFunc = "CloseEnhMetaFile";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCloseMetaFile;
-    stHook[nIndex].szFunc = "CloseMetaFile";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    //pen
-    stHook[nIndex].pProc = (PROC)MyCreatePen;
-    stHook[nIndex].szFunc = "CreatePen";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreatePenIndirect;
-    stHook[nIndex].szFunc = "CreatePenIndirect";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyExtCreatePen;
-    stHook[nIndex].szFunc = "ExtCreatePen";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    // rgn
-    stHook[nIndex].pProc = (PROC)MyPathToRegion;
-    stHook[nIndex].szFunc = "PathToRegion";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateEllipticRgn;
-    stHook[nIndex].szFunc = "CreateEllipticRgn";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateEllipticRgnIndirect;
-    stHook[nIndex].szFunc = "CreateEllipticRgnIndirect";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreatePolygonRgn;
-    stHook[nIndex].szFunc = "CreatePolygonRgn";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreatePolyPolygonRgn;
-    stHook[nIndex].szFunc = "CreatePolyPolygonRgn";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateRectRgn;
-    stHook[nIndex].szFunc = "CreateRectRgn";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateRectRgnIndirect;
-    stHook[nIndex].szFunc = "CreateRectRgnIndirect";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateRoundRectRgn;
-    stHook[nIndex].szFunc = "CreateRoundRectRgn";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyExtCreateRegion;
-    stHook[nIndex].szFunc = "ExtCreateRegion";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    // Palette
-    stHook[nIndex].pProc = (PROC)MyCreateHalftonePalette;
-    stHook[nIndex].szFunc = "CreateHalftonePalette";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreatePalette;
-    stHook[nIndex].szFunc = "CreatePalette";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    HookDynamicLoadedFun( nIndex, stHook );
-
-}
-
-void RestoreGDIHook()
-{
-    HOOKFUNCDESC stHook[86] = {0};
-    int nIndex = 0;
-    stHook[nIndex].pProc = (PROC)pOrgLoadBitmapA;
-    stHook[nIndex].szFunc = "LoadBitmapA";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLoadBitmapW;
-    stHook[nIndex].szFunc = "LoadBitmapW";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateBitmap;
-    stHook[nIndex].szFunc = "CreateBitmap";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateBitmapIndirect;
-    stHook[nIndex].szFunc = "CreateBitmapIndirect";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateCompatibleBitmap;
-    stHook[nIndex].szFunc = "CreateCompatibleBitmap";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateDIBitmap;
-    stHook[nIndex].szFunc = "CreateDIBitmap";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateDIBSection;
-    stHook[nIndex].szFunc = "CreateDIBSection";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateDiscardableBitmap;
-    stHook[nIndex].szFunc = "CreateDiscardableBitmap";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCopyImage;
-    stHook[nIndex].szFunc = "CopyImage";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGetIconInfo;
-    stHook[nIndex].szFunc = "GetIconInfo";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGetIconInfoExA;
-    stHook[nIndex].szFunc = "GetIconInfoExA";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGetIconInfoExW;
-    stHook[nIndex].szFunc = "GetIconInfoExW";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDeleteObject;
-    stHook[nIndex].szFunc = "DeleteObject";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    //ICONS
-    stHook[nIndex].pProc = (PROC)pOrgCopyIcon;
-    stHook[nIndex].szFunc = "CopyIcon";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateIcon;
-    stHook[nIndex].szFunc = "CreateIcon";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateIconFromResource;
-    stHook[nIndex].szFunc = "CreateIconFromResource";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateIconFromResourceEx;
-    stHook[nIndex].szFunc = "CreateIconFromResourceEx";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateIconIndirect;
-    stHook[nIndex].szFunc = "CreateIconIndirect";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDuplicateIcon;
-    stHook[nIndex].szFunc = "DuplicateIcon";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDestroyIcon;
-    stHook[nIndex].szFunc = "DestroyIcon";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgExtractAssociatedIconA;
-    stHook[nIndex].szFunc = "ExtractAssociatedIconA";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgExtractAssociatedIconW;
-    stHook[nIndex].szFunc = "ExtractAssociatedIconW";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgExtractAssociatedIconExA;
-    stHook[nIndex].szFunc = "ExtractAssociatedIconExA";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgExtractAssociatedIconExW;
-    stHook[nIndex].szFunc = "ExtractAssociatedIconExW";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgExtractIconA;
-    stHook[nIndex].szFunc = "ExtractIconA";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-
-    stHook[nIndex].pProc = (PROC)pOrgExtractIconW;
-    stHook[nIndex].szFunc = "ExtractIconW";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgExtractIconExA;
-    stHook[nIndex].szFunc = "ExtractIconExA";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgExtractIconExW;
-    stHook[nIndex].szFunc = "ExtractIconExW";
-    stHook[nIndex].lpszDllName = _T("shell32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLoadIconA;
-    stHook[nIndex].szFunc = "LoadIconA";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLoadIconW;
-    stHook[nIndex].szFunc = "LoadIconW";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgPrivateExtractIconsA;
-    stHook[nIndex].szFunc = "PrivateExtractIconsA";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgPrivateExtractIconsW;
-    stHook[nIndex].szFunc = "PrivateExtractIconsW";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    // Cursor
-    stHook[nIndex].pProc = (PROC)pOrgCreateCursor;
-    stHook[nIndex].szFunc = "CreateCursor";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLoadCursorA;
-    stHook[nIndex].szFunc = "LoadCursorA";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLoadCursorW;
-    stHook[nIndex].szFunc = "LoadCursorW";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLoadCursorFromFileA;
-    stHook[nIndex].szFunc = "LoadCursorFromFileA";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLoadCursorFromFileW;
-    stHook[nIndex].szFunc = "LoadCursorFromFileW";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDestroyCursor;
-    stHook[nIndex].szFunc = "DestroyCursor";
-    stHook[nIndex].lpszDllName = _T("user32.dll");
-    nIndex++;
-
-
-    // brush
-    stHook[nIndex].pProc = (PROC)pOrgCreateBrushIndirect;
-    stHook[nIndex].szFunc = "CreateBrushIndirect";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateSolidBrush;
-    stHook[nIndex].szFunc = "CreateSolidBrush";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreatePatternBrush;
-    stHook[nIndex].szFunc = "CreatePatternBrush";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateDIBPatternBrush;
-    stHook[nIndex].szFunc = "CreateDIBPatternBrush";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateDIBPatternBrushPt;
-    stHook[nIndex].szFunc = "CreateDIBPatternBrushPt";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateHatchBrush;
-    stHook[nIndex].szFunc = "CreateHatchBrush";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    // DC creation
-    stHook[nIndex].pProc = (PROC)pOrgCreateCompatibleDC;
-    stHook[nIndex].szFunc = "CreateCompatibleDC";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateDCA;
-    stHook[nIndex].szFunc = "CreateDCA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateDCW;
-    stHook[nIndex].szFunc = "CreateDCW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateICA;
-    stHook[nIndex].szFunc = "CreateICA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateICW;
-    stHook[nIndex].szFunc = "CreateICW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGetDC;
-    stHook[nIndex].szFunc = "GetDC";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGetDCEx;
-    stHook[nIndex].szFunc = "GetDCEx";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGetWindowDC;
-    stHook[nIndex].szFunc = "GetWindowDC";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgReleaseDC;
-    stHook[nIndex].szFunc = "ReleaseDC";
-    stHook[nIndex].lpszDllName = _T("User32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDeleteDC;
-    stHook[nIndex].szFunc = "DeleteDC";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    //Font
-    stHook[nIndex].pProc = (PROC)pOrgCreateFontA;
-    stHook[nIndex].szFunc = "CreateFontA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateFontW;
-    stHook[nIndex].szFunc = "CreateFontW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateFontIndirectA;
-    stHook[nIndex].szFunc = "CreateFontIndirectA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateFontIndirectW;
-    stHook[nIndex].szFunc = "CreateFontIndirectW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    // Meta file
-    stHook[nIndex].pProc = (PROC)pOrgCreateMetaFileA;
-    stHook[nIndex].szFunc = "CreateMetaFileA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateMetaFileW;
-    stHook[nIndex].szFunc = "CreateMetaFileW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateEnhMetaFileA;
-    stHook[nIndex].szFunc = "CreateEnhMetaFileA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateEnhMetaFileW;
-    stHook[nIndex].szFunc = "CreateEnhMetaFileW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGetEnhMetaFileA;
-    stHook[nIndex].szFunc = "GetEnhMetaFileA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGetEnhMetaFileW;
-    stHook[nIndex].szFunc = "GetEnhMetaFileW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGetMetaFileA;
-    stHook[nIndex].szFunc = "GetMetaFileA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGetMetaFileW;
-    stHook[nIndex].szFunc = "GetMetaFileW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDeleteMetaFile;
-    stHook[nIndex].szFunc = "DeleteMetaFile";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDeleteEnhMetaFile;
-    stHook[nIndex].szFunc = "DeleteEnhMetaFile";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCopyEnhMetaFileA;
-    stHook[nIndex].szFunc = "CopyEnhMetaFileA";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCopyEnhMetaFileW;
-    stHook[nIndex].szFunc = "CopyEnhMetaFileW";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCloseEnhMetaFile;
-    stHook[nIndex].szFunc = "CloseEnhMetaFile";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCloseMetaFile;
-    stHook[nIndex].szFunc = "CloseMetaFile";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    //pen
-    stHook[nIndex].pProc = (PROC)pOrgCreatePen;
-    stHook[nIndex].szFunc = "CreatePen";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreatePenIndirect;
-    stHook[nIndex].szFunc = "CreatePenIndirect";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgExtCreatePen;
-    stHook[nIndex].szFunc = "ExtCreatePen";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    // rgn
-    stHook[nIndex].pProc = (PROC)pOrgPathToRegion;
-    stHook[nIndex].szFunc = "PathToRegion";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateEllipticRgn;
-    stHook[nIndex].szFunc = "CreateEllipticRgn";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateEllipticRgnIndirect;
-    stHook[nIndex].szFunc = "CreateEllipticRgnIndirect";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreatePolygonRgn;
-    stHook[nIndex].szFunc = "CreatePolygonRgn";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreatePolyPolygonRgn;
-    stHook[nIndex].szFunc = "CreatePolyPolygonRgn";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateRectRgn;
-    stHook[nIndex].szFunc = "CreateRectRgn";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateRectRgnIndirect;
-    stHook[nIndex].szFunc = "CreateRectRgnIndirect";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateRoundRectRgn;
-    stHook[nIndex].szFunc = "CreateRoundRectRgn";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgExtCreateRegion;
-    stHook[nIndex].szFunc = "ExtCreateRegion";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    // Palette
-    stHook[nIndex].pProc = (PROC)pOrgCreateHalftonePalette;
-    stHook[nIndex].szFunc = "CreateHalftonePalette";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreatePalette;
-    stHook[nIndex].szFunc = "CreatePalette";
-    stHook[nIndex].lpszDllName = _T("Gdi32.dll");
-    nIndex++;
-
-    HookDynamicLoadedFun( nIndex, stHook );
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -3466,1227 +2374,136 @@ BOOL   WINAPI MyCloseHandle( HANDLE hObject )
 
 }
 
+
 const int HANDLE_FUNC_COUNT = 108;
 void HookHandleAlloc()
 {
-    HMODULE hKernel32Module = LoadLibrary( "Kernel32.dll" );
-    HMODULE hAdvapi32Module = LoadLibrary( "Advapi32.dll" );
-    pOrgCreateEventA  = (CreateEventADef)GetProcAddress( hKernel32Module, "CreateEventA" );
-    pOrgCreateEventW = (CreateEventWDef)GetProcAddress( hKernel32Module, "CreateEventW" );
-    pOrgCreateEventExA = (CreateEventExADef)GetProcAddress( hKernel32Module, "CreateEventExA" );
-    pOrgCreateEventExW = (CreateEventExWDef)GetProcAddress( hKernel32Module, "CreateEventExW" );
-    pOrgOpenEventA = (OpenEventADef)GetProcAddress( hKernel32Module, "OpenEventA" );
-    pOrgOpenEventW = (OpenEventWDef)GetProcAddress( hKernel32Module, "OpenEventW" );
-    pOrgCreateMutexA = (CreateMutexADef)GetProcAddress( hKernel32Module, "CreateMutexA" );
-    pOrgCreateMutexW = (CreateMutexWDef)GetProcAddress( hKernel32Module, "CreateMutexW" );
-    pOrgCreateMutexExA = (CreateMutexExADef)GetProcAddress( hKernel32Module, "CreateMutexExA" );
-    pOrgCreateMutexExW = (CreateMutexExWDef)GetProcAddress( hKernel32Module, "CreateMutexExW" );
-    pOrgOpenMutexA = (OpenMutexADef)GetProcAddress( hKernel32Module, "OpenMutexA" );
-    pOrgOpenMutexW = (OpenMutexWDef)GetProcAddress( hKernel32Module, "OpenMutexW" );
-    pOrgCreateSemaphoreA = (CreateSemaphoreADef)GetProcAddress( hKernel32Module, "CreateSemaphoreA" );
-    pOrgCreateSemaphoreW = (CreateSemaphoreWDef)GetProcAddress( hKernel32Module, "CreateSemaphoreW" );
-    pOrgCreateSemaphoreExA = (CreateSemaphoreExADef)GetProcAddress( hKernel32Module, "CreateSemaphoreExA" );
-    pOrgCreateSemaphoreExW = (CreateSemaphoreExWDef)GetProcAddress( hKernel32Module, "CreateSemaphoreExW" );
-    pOrgOpenSemaphoreA = (OpenSemaphoreADef)GetProcAddress( hKernel32Module, "OpenSemaphoreA" );
-    pOrgOpenSemaphoreW = (OpenSemaphoreWDef)GetProcAddress( hKernel32Module, "OpenSemaphoreW" );
-    pOrgCreateWaitableTimerA = (CreateWaitableTimerADef)GetProcAddress( hKernel32Module, "CreateWaitableTimerA" );
-    pOrgCreateWaitableTimerW = (CreateWaitableTimerWDef)GetProcAddress( hKernel32Module, "CreateWaitableTimerW" );
-    pOrgCreateWaitableTimerExA = (CreateWaitableTimerExADef)GetProcAddress( hKernel32Module, "CreateWaitableTimerExA" );
-    pOrgCreateWaitableTimerExW = (CreateWaitableTimerExWDef)GetProcAddress( hKernel32Module, "CreateWaitableTimerExW" );
-    pOrgOpenWaitableTimerA = (OpenWaitableTimerADef)GetProcAddress( hKernel32Module, "OpenWaitableTimerA" );
-    pOrgOpenWaitableTimerW = (OpenWaitableTimerWDef)GetProcAddress( hKernel32Module, "OpenWaitableTimerW" );
-    pOrgCreateFileA = (CreateFileADef)GetProcAddress( hKernel32Module, "CreateFileA" );
-    pOrgCreateFileW = (CreateFileWDef)GetProcAddress( hKernel32Module, "CreateFileW" );
-    pOrgCreateFileTransactedA = (CreateFileTransactedADef)GetProcAddress( hKernel32Module, "CreateFileTransactedA" );
-    pOrgCreateFileTransactedW = (CreateFileTransactedWDef)GetProcAddress( hKernel32Module, "CreateFileTransactedW" );
-    pOrgFindFirstFileA = (FindFirstFileADef)GetProcAddress( hKernel32Module, "FindFirstFileA" );
-    pOrgFindFirstFileW = (FindFirstFileWDef)GetProcAddress( hKernel32Module, "FindFirstFileW" );
-    pOrgFindFirstFileExA = (FindFirstFileExADef)GetProcAddress( hKernel32Module, "FindFirstFileExA" );
-    pOrgFindFirstFileExW = (FindFirstFileExWDef)GetProcAddress( hKernel32Module, "FindFirstFileExW" );
-    pOrgFindFirstFileNameTransactedW  = (FindFirstFileNameTransactedWDef)GetProcAddress( hKernel32Module, "FindFirstFileExW" );
-    pOrgFindFirstFileNameW = (FindFirstFileNameWDef)GetProcAddress( hKernel32Module, "FindFirstFileNameW" );
-    pOrgFindFirstFileTransactedA = (FindFirstFileTransactedADef)GetProcAddress( hKernel32Module, "FindFirstFileTransactedA" );
-    pOrgFindFirstFileTransactedW = (FindFirstFileTransactedWDef)GetProcAddress( hKernel32Module, "FindFirstFileTransactedW" );
-    pOrgFindFirstStreamTransactedW = (FindFirstStreamTransactedWDef)GetProcAddress( hKernel32Module, "FindFirstStreamTransactedW" );
-    pOrgFindFirstStreamW = (FindFirstStreamWDef)GetProcAddress( hKernel32Module, "FindFirstStreamW" );
-    pOrgFindClose = (FindCloseDef)GetProcAddress( hKernel32Module, "FindClose" );
-    pOrgOpenFileById = (OpenFileByIdDef)GetProcAddress( hKernel32Module, "OpenFileById" );
-    pOrgReOpenFile = (ReOpenFileDef)GetProcAddress( hKernel32Module, "ReOpenFile" );
-    pOrgCreateIoCompletionPort = (CreateIoCompletionPortDef)GetProcAddress( hKernel32Module, "CreateIoCompletionPort" );
-    pOrgCreateRestrictedToken = (CreateRestrictedTokenDef)GetProcAddress( hAdvapi32Module, "CreateRestrictedToken" );
-    pOrgDuplicateToken = (DuplicateTokenDef)GetProcAddress( hAdvapi32Module, "DuplicateToken" );
-    pOrgDuplicateTokenEx = (DuplicateTokenExDef)GetProcAddress( hAdvapi32Module, "DuplicateTokenEx" );
-    pOrgOpenProcessToken = (OpenProcessTokenDef)GetProcAddress( hAdvapi32Module, "OpenProcessToken" );
-    pOrgOpenThreadToken = (OpenThreadTokenDef)GetProcAddress( hAdvapi32Module, "OpenThreadToken" );
-    pOrgFindFirstChangeNotificationA = (FindFirstChangeNotificationADef)GetProcAddress( hKernel32Module, "FindFirstChangeNotificationA" );
-    pOrgFindFirstChangeNotificationW = (FindFirstChangeNotificationWDef)GetProcAddress( hKernel32Module, "FindFirstChangeNotificationW" );
-    pOrgFindCloseChangeNotification = (FindCloseChangeNotificationDef)GetProcAddress( hKernel32Module, "FindCloseChangeNotification" );
-    pOrgCreateMemoryResourceNotification = (CreateMemoryResourceNotificationDef)GetProcAddress( hKernel32Module, "CreateMemoryResourceNotification" );
-    pOrgCreateFileMappingA = (CreateFileMappingADef)GetProcAddress( hKernel32Module, "CreateFileMappingA" );
-    pOrgCreateFileMappingW = (CreateFileMappingWDef)GetProcAddress( hKernel32Module, "CreateFileMappingW" );
-    pOrgCreateFileMappingNumaA = (CreateFileMappingNumaADef)GetProcAddress( hKernel32Module, "CreateFileMappingNumaA" );
-    pOrgCreateFileMappingNumaW = (CreateFileMappingNumaWDef)GetProcAddress( hKernel32Module, "CreateFileMappingNumaW" );
-    pOrgOpenFileMappingA = (OpenFileMappingADef)GetProcAddress( hKernel32Module, "OpenFileMappingA" );
-    pOrgOpenFileMappingW = (OpenFileMappingWDef)GetProcAddress( hKernel32Module, "OpenFileMappingW" );
-    pOrgHeapCreate = (HeapCreateDef)GetProcAddress( hKernel32Module, "HeapCreate" );
-    pOrgHeapDestroy = (HeapDestroyDef)GetProcAddress( hKernel32Module, "HeapDestroy" );
-    pOrgGlobalAlloc = (GlobalAllocDef)GetProcAddress( hKernel32Module, "GlobalAlloc" );
-    pOrgGlobalReAlloc = (GlobalReAllocDef)GetProcAddress( hKernel32Module, "GlobalReAlloc" );
-    pOrgGlobalFree = (GlobalFreeDef)GetProcAddress( hKernel32Module, "GlobalFree" );
-    pOrgLocalAlloc = (LocalAllocDef)GetProcAddress( hKernel32Module, "LocalAlloc" );
-    pOrgLocalReAlloc = (LocalReAllocDef)GetProcAddress( hKernel32Module, "LocalReAlloc" );
-    pOrgLocalFree = (LocalFreeDef)GetProcAddress( hKernel32Module, "LocalFree" );
-    pOrgCreateProcessA = (CreateProcessADef)GetProcAddress( hKernel32Module, "CreateProcessA" );
-    pOrgCreateProcessW = (CreateProcessWDef)GetProcAddress( hKernel32Module, "CreateProcessW" );
-    pOrgCreateProcessAsUserA = (CreateProcessAsUserADef)GetProcAddress( hAdvapi32Module, "CreateProcessAsUserA" );
-    pOrgCreateProcessAsUserW = (CreateProcessAsUserWDef)GetProcAddress( hAdvapi32Module, "CreateProcessAsUserW" );
-    pOrgCreateProcessWithLogonW = (CreateProcessWithLogonWDef)GetProcAddress( hAdvapi32Module, "CreateProcessWithLogonW" );
-    pOrgCreateProcessWithTokenW = (CreateProcessWithTokenWDef)GetProcAddress( hAdvapi32Module, "CreateProcessWithTokenW" );
-    pOrgOpenProcess = (OpenProcessDef)GetProcAddress( hKernel32Module, "OpenProcess" );
-    pOrgCreateThread = (CreateThreadDef)GetProcAddress( hKernel32Module, "CreateThread" );
-    pOrgCreateRemoteThread = (CreateRemoteThreadDef)GetProcAddress( hKernel32Module, "CreateRemoteThread" );
-    pOrgOpenThread = (OpenThreadDef)GetProcAddress( hKernel32Module, "OpenThread" );
-    pOrgCreateJobObjectA = (CreateJobObjectADef)GetProcAddress( hKernel32Module, "CreateJobObjectA" );
-    pOrgCreateJobObjectW = (CreateJobObjectWDef)GetProcAddress( hKernel32Module, "CreateJobObjectW" );
-    pOrgCreateMailslotA = (CreateMailslotADef)GetProcAddress( hKernel32Module, "CreateMailslotA" );
-    pOrgCreateMailslotW = (CreateMailslotWDef)GetProcAddress( hKernel32Module, "CreateMailslotW" );
-    pOrgCreatePipe = (CreatePipeDef)GetProcAddress( hKernel32Module, "CreatePipe" );
-    pOrgCreateNamedPipeA = (CreateNamedPipeADef)GetProcAddress( hKernel32Module, "CreateNamedPipeA" );
-    pOrgCreateNamedPipeW = (CreateNamedPipeWDef)GetProcAddress( hKernel32Module, "CreateNamedPipeW" );
-    pOrgRegCreateKeyExA = (RegCreateKeyExADef)GetProcAddress( hAdvapi32Module, "RegCreateKeyExA" );
-    pOrgRegCreateKeyExW  = (RegCreateKeyExWDef)GetProcAddress( hAdvapi32Module, "RegCreateKeyExW" );
-    pOrgRegCreateKeyTransactedA = (RegCreateKeyTransactedADef)GetProcAddress( hKernel32Module, "RegCreateKeyTransactedA" );
-    pOrgRegCreateKeyTransactedW = (RegCreateKeyTransactedWDef)GetProcAddress( hKernel32Module, "RegCreateKeyTransactedW" );
-    pOrgRegOpenCurrentUser = (RegOpenCurrentUserDef)GetProcAddress( hKernel32Module, "RegOpenCurrentUser" );
-    pOrgRegOpenKeyA = (RegOpenKeyADef)GetProcAddress( hKernel32Module, "RegOpenKeyA" );
-    pOrgRegOpenKeyW = (RegOpenKeyWDef)GetProcAddress( hKernel32Module, "RegOpenKeyW" );
-    pOrgRegOpenKeyExA = (RegOpenKeyExADef)GetProcAddress( hKernel32Module, "RegOpenKeyExA" );
-    pOrgRegOpenKeyExW = (RegOpenKeyExWDef)GetProcAddress( hKernel32Module, "RegOpenKeyExW" );
-    pOrgRegOpenKeyTransactedA = (RegOpenKeyTransactedADef)GetProcAddress( hKernel32Module, "RegOpenKeyTransactedA" );
-    pOrgRegOpenKeyTransactedW = (RegOpenKeyTransactedWDef)GetProcAddress( hKernel32Module, "RegOpenKeyTransactedW" );
-    pOrgRegOpenUserClassesRoot = (RegOpenUserClassesRootDef)GetProcAddress( hKernel32Module, "RegOpenUserClassesRoot" );
-    pOrgRegCreateKeyA = (RegCreateKeyADef)GetProcAddress( hKernel32Module, "RegCreateKeyA" );
-    pOrgRegCreateKeyW = (RegCreateKeyWDef)GetProcAddress( hKernel32Module, "RegCreateKeyW" );
-    pOrgRegCloseKey = (RegCloseKeyDef)GetProcAddress( hKernel32Module, "RegCloseKey" );
-    pOrgDuplicateHandle = (DuplicateHandleDef)GetProcAddress( hKernel32Module, "DuplicateHandle" );
-    pOrgCloseHandle = (CloseHandleDef)GetProcAddress( hKernel32Module, "CloseHandle" );
+    HMODULE Kernel32 = LoadLibrary( "Kernel32.dll" );
+    HMODULE Advapi32 = LoadLibrary( "Advapi32.dll" );
+    g_arrHookedFunctions.SetSize( HANDLE_FUNC_COUNT ); 
+    int nIndex = 0;
+
+    REGISTER_HOOK(CreateEventA,Kernel32 );
+    REGISTER_HOOK(CreateEventW,Kernel32 );
+    REGISTER_HOOK(CreateEventExA,Kernel32 );
+    REGISTER_HOOK(CreateEventExW,Kernel32 );
+    REGISTER_HOOK(OpenEventA,Kernel32 );
+    REGISTER_HOOK(OpenEventW,Kernel32 );
+    REGISTER_HOOK(CreateMutexA,Kernel32 );
+    REGISTER_HOOK(CreateMutexW,Kernel32 );
+    REGISTER_HOOK(CreateMutexExA,Kernel32 );
+    REGISTER_HOOK(CreateMutexExW,Kernel32 );
+    REGISTER_HOOK(OpenMutexA,Kernel32 );
+    REGISTER_HOOK(OpenMutexW,Kernel32 );
+    REGISTER_HOOK(CreateSemaphoreA,Kernel32 );
+    REGISTER_HOOK(CreateSemaphoreW,Kernel32 );
+    REGISTER_HOOK(CreateSemaphoreExA,Kernel32 );
+    REGISTER_HOOK(CreateSemaphoreExW,Kernel32 );
+    REGISTER_HOOK(OpenSemaphoreA,Kernel32 );
+    REGISTER_HOOK(OpenSemaphoreW,Kernel32 );
+    REGISTER_HOOK(CreateWaitableTimerA,Kernel32 );
+    REGISTER_HOOK(CreateWaitableTimerW,Kernel32 );
+    REGISTER_HOOK(CreateWaitableTimerExA,Kernel32 );
+    REGISTER_HOOK(CreateWaitableTimerExW,Kernel32 );
+    REGISTER_HOOK(OpenWaitableTimerA,Kernel32 );
+    REGISTER_HOOK(OpenWaitableTimerW,Kernel32 );
+    REGISTER_HOOK(CreateFileA,Kernel32 );
+    REGISTER_HOOK(CreateFileW,Kernel32 );
+    REGISTER_HOOK(CreateFileTransactedA,Kernel32 );
+    REGISTER_HOOK(CreateFileTransactedW,Kernel32 );
+    REGISTER_HOOK(FindFirstFileA,Kernel32 );
+    REGISTER_HOOK(FindFirstFileW,Kernel32 );
+    REGISTER_HOOK(FindFirstFileExA,Kernel32 );
+    REGISTER_HOOK(FindFirstFileExW,Kernel32 );
+    REGISTER_HOOK(FindFirstFileExW,Kernel32 );
+    REGISTER_HOOK(FindFirstFileNameW,Kernel32 );
+    REGISTER_HOOK(FindFirstFileTransactedA,Kernel32 );
+    REGISTER_HOOK(FindFirstFileTransactedW,Kernel32 );
+    REGISTER_HOOK(FindFirstStreamTransactedW,Kernel32 );
+    REGISTER_HOOK(FindFirstStreamW,Kernel32 );
+    REGISTER_HOOK(FindClose,Kernel32 );
+    REGISTER_HOOK(OpenFileById,Kernel32 );
+    REGISTER_HOOK(ReOpenFile,Kernel32 );
+    REGISTER_HOOK(CreateIoCompletionPort,Kernel32 );
+    REGISTER_HOOK(CreateRestrictedToken,Advapi32 );
+    REGISTER_HOOK(DuplicateToken,Advapi32 );
+    REGISTER_HOOK(DuplicateTokenEx,Advapi32 );
+    REGISTER_HOOK(OpenProcessToken,Advapi32 );
+    REGISTER_HOOK(OpenThreadToken,Advapi32 );
+    REGISTER_HOOK(FindFirstChangeNotificationA,Kernel32 );
+    REGISTER_HOOK(FindFirstChangeNotificationW,Kernel32 );
+    REGISTER_HOOK(FindCloseChangeNotification,Kernel32 );
+    REGISTER_HOOK(CreateMemoryResourceNotification,Kernel32 );
+    REGISTER_HOOK(CreateFileMappingA,Kernel32 );
+    REGISTER_HOOK(CreateFileMappingW,Kernel32 );
+    REGISTER_HOOK(CreateFileMappingNumaA,Kernel32 );
+    REGISTER_HOOK(CreateFileMappingNumaW,Kernel32 );
+    REGISTER_HOOK(OpenFileMappingA,Kernel32 );
+    REGISTER_HOOK(OpenFileMappingW,Kernel32 );
+    REGISTER_HOOK(HeapCreate,Kernel32 );
+    REGISTER_HOOK(HeapDestroy,Kernel32 );
+    REGISTER_HOOK(GlobalAlloc,Kernel32 );
+    REGISTER_HOOK(GlobalReAlloc,Kernel32 );
+    REGISTER_HOOK(GlobalFree,Kernel32 );
+    REGISTER_HOOK(LocalAlloc,Kernel32 );
+    REGISTER_HOOK(LocalReAlloc,Kernel32 );
+    REGISTER_HOOK(LocalFree,Kernel32 );
+    REGISTER_HOOK(CreateProcessA,Kernel32 );
+    REGISTER_HOOK(CreateProcessW,Kernel32 );
+    REGISTER_HOOK(CreateProcessAsUserA,Advapi32 );
+    REGISTER_HOOK(CreateProcessAsUserW,Advapi32 );
+    REGISTER_HOOK(CreateProcessWithLogonW,Advapi32 );
+    REGISTER_HOOK(CreateProcessWithTokenW,Advapi32 );
+    REGISTER_HOOK(OpenProcess,Kernel32 );
+    REGISTER_HOOK(CreateThread,Kernel32 );
+    REGISTER_HOOK(CreateRemoteThread,Kernel32 );
+    REGISTER_HOOK(OpenThread,Kernel32 );
+    REGISTER_HOOK(CreateJobObjectA,Kernel32 );
+    REGISTER_HOOK(CreateJobObjectW,Kernel32 );
+    REGISTER_HOOK(CreateMailslotA,Kernel32 );
+    REGISTER_HOOK(CreateMailslotW,Kernel32 );
+    REGISTER_HOOK(CreatePipe,Kernel32 );
+    REGISTER_HOOK(CreateNamedPipeA,Kernel32 );
+    REGISTER_HOOK(CreateNamedPipeW,Kernel32 );
+    REGISTER_HOOK(RegCreateKeyExA,Advapi32 );
+    REGISTER_HOOK(RegCreateKeyExW,Advapi32 );
+    REGISTER_HOOK(RegCreateKeyTransactedA,Kernel32 );
+    REGISTER_HOOK(RegCreateKeyTransactedW,Kernel32 );
+    REGISTER_HOOK(RegOpenCurrentUser,Kernel32 );
+    REGISTER_HOOK(RegOpenKeyA,Kernel32 );
+    REGISTER_HOOK(RegOpenKeyW,Kernel32 );
+    REGISTER_HOOK(RegOpenKeyExA,Kernel32 );
+    REGISTER_HOOK(RegOpenKeyExW,Kernel32 );
+    REGISTER_HOOK(RegOpenKeyTransactedA,Kernel32 );
+    REGISTER_HOOK(RegOpenKeyTransactedW,Kernel32 );
+    REGISTER_HOOK(RegOpenUserClassesRoot,Kernel32 );
+    REGISTER_HOOK(RegCreateKeyA,Kernel32 );
+    REGISTER_HOOK(RegCreateKeyW,Kernel32 );
+    REGISTER_HOOK(RegCloseKey,Kernel32 );
+    REGISTER_HOOK(DuplicateHandle,Kernel32 );
+    REGISTER_HOOK(CloseHandle,Kernel32 );
 
     ////////////////////////////////v3 additions//////////////////////////////////////////////////
     // Timers
-    pOrgCreateTimerQueue         = (CreateTimerQueueDef)GetProcAddress( hKernel32Module, "CreateTimerQueue" );
-    pOrgCreateTimerQueueTimer    = (CreateTimerQueueTimerDef)GetProcAddress( hKernel32Module, "CreateTimerQueueTimer" );
-    pOrgDeleteTimerQueueTimer    = (DeleteTimerQueueTimerDef)GetProcAddress( hKernel32Module, "DeleteTimerQueueTimer" );
-    pOrgDeleteTimerQueueEx       = (DeleteTimerQueueExDef)GetProcAddress( hKernel32Module, "DeleteTimerQueueEx" );
-    pOrgDeleteTimerQueue         = (DeleteTimerQueueDef)GetProcAddress( hKernel32Module, "DeleteTimerQueue" );
-
-    pOrgInitializeCriticalSection               = (InitializeCriticalSectionDef)GetProcAddress( hKernel32Module, "InitializeCriticalSection" );
-    pOrgInitializeCriticalSectionEx             = (InitializeCriticalSectionExDef)GetProcAddress( hKernel32Module, "InitializeCriticalSectionEx" );
-    pOrgInitializeCriticalSectionAndSpinCount   = (InitializeCriticalSectionAndSpinCountDef)GetProcAddress( hKernel32Module, "InitializeCriticalSectionAndSpinCount" );
-    pOrgDeleteCriticalSection                   = (DeleteCriticalSectionDef)GetProcAddress( hKernel32Module, "DeleteCriticalSection" );
-
-    ////////////////////////////////v3 additions//////////////////////////////////////////////////
-    HOOKFUNCDESC stHook[HANDLE_FUNC_COUNT] = {0};
-    int nIndex = 0;
-    stHook[nIndex].pProc = (PROC)MyCreateEventA;
-    stHook[nIndex].szFunc = "CreateEventA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateEventW;
-    stHook[nIndex].szFunc = "CreateEventW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateEventExA;
-    stHook[nIndex].szFunc = "CreateEventExA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateEventExW;
-    stHook[nIndex].szFunc = "CreateEventExW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenEventA;
-    stHook[nIndex].szFunc = "OpenEventA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenEventW;
-    stHook[nIndex].szFunc = "OpenEventW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateMutexA;
-    stHook[nIndex].szFunc = "CreateMutexA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateMutexW;
-    stHook[nIndex].szFunc = "CreateMutexW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateMutexExA;
-    stHook[nIndex].szFunc = "CreateMutexExA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateMutexExW;
-    stHook[nIndex].szFunc = "CreateMutexExW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenMutexA;
-    stHook[nIndex].szFunc = "OpenMutexA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenMutexW;
-    stHook[nIndex].szFunc = "OpenMutexW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateSemaphoreA;
-    stHook[nIndex].szFunc = "CreateSemaphoreA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateSemaphoreW;
-    stHook[nIndex].szFunc = "CreateSemaphoreW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateSemaphoreExA;
-    stHook[nIndex].szFunc = "CreateSemaphoreExA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateSemaphoreExW;
-    stHook[nIndex].szFunc = "CreateSemaphoreExW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenSemaphoreA;
-    stHook[nIndex].szFunc = "OpenSemaphoreA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenSemaphoreW;
-    stHook[nIndex].szFunc = "OpenSemaphoreW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateWaitableTimerA;
-    stHook[nIndex].szFunc = "CreateWaitableTimerA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateWaitableTimerW;
-    stHook[nIndex].szFunc = "CreateWaitableTimerW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateWaitableTimerExA;
-    stHook[nIndex].szFunc = "CreateWaitableTimerExA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateWaitableTimerExW;
-    stHook[nIndex].szFunc = "CreateWaitableTimerExW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenWaitableTimerA;
-    stHook[nIndex].szFunc = "OpenWaitableTimerA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenWaitableTimerW;
-    stHook[nIndex].szFunc = "OpenWaitableTimerW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateFileA;
-    stHook[nIndex].szFunc = "CreateFileA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateFileW;
-    stHook[nIndex].szFunc = "CreateFileW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateFileTransactedA;
-    stHook[nIndex].szFunc = "CreateFileTransactedA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateFileTransactedW;
-    stHook[nIndex].szFunc = "CreateFileTransactedW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindFirstFileA;
-    stHook[nIndex].szFunc = "FindFirstFileA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindFirstFileW;
-    stHook[nIndex].szFunc = "FindFirstFileW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindFirstFileExA;
-    stHook[nIndex].szFunc = "FindFirstFileExA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindFirstFileExW;
-    stHook[nIndex].szFunc = "FindFirstFileExW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindFirstFileNameTransactedW ;
-    stHook[nIndex].szFunc = "FindFirstFileNameTransactedW ";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindFirstFileNameW;
-    stHook[nIndex].szFunc = "FindFirstFileNameW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindFirstFileTransactedA;
-    stHook[nIndex].szFunc = "FindFirstFileTransactedA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindFirstFileTransactedW;
-    stHook[nIndex].szFunc = "FindFirstFileTransactedW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindFirstStreamTransactedW;
-    stHook[nIndex].szFunc = "FindFirstStreamTransactedW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindFirstStreamW;
-    stHook[nIndex].szFunc = "FindFirstStreamW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindClose;
-    stHook[nIndex].szFunc = "FindClose";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenFileById;
-    stHook[nIndex].szFunc = "OpenFileById";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyReOpenFile;
-    stHook[nIndex].szFunc = "ReOpenFile";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateIoCompletionPort;
-    stHook[nIndex].szFunc = "CreateIoCompletionPort";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateRestrictedToken;
-    stHook[nIndex].szFunc = "CreateRestrictedToken";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDuplicateToken;
-    stHook[nIndex].szFunc = "DuplicateToken";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDuplicateTokenEx;
-    stHook[nIndex].szFunc = "DuplicateTokenEx";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenProcessToken;
-    stHook[nIndex].szFunc = "OpenProcessToken";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenThreadToken;
-    stHook[nIndex].szFunc = "OpenThreadToken";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindFirstChangeNotificationA;
-    stHook[nIndex].szFunc = "FindFirstChangeNotificationA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindFirstChangeNotificationW;
-    stHook[nIndex].szFunc = "FindFirstChangeNotificationW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyFindCloseChangeNotification;
-    stHook[nIndex].szFunc = "FindCloseChangeNotification";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateMemoryResourceNotification;
-    stHook[nIndex].szFunc = "CreateMemoryResourceNotification";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateFileMappingA;
-    stHook[nIndex].szFunc = "CreateFileMappingA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateFileMappingW;
-    stHook[nIndex].szFunc = "CreateFileMappingW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateFileMappingNumaA;
-    stHook[nIndex].szFunc = "CreateFileMappingNumaA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateFileMappingNumaW;
-    stHook[nIndex].szFunc = "CreateFileMappingNumaW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenFileMappingA;
-    stHook[nIndex].szFunc = "OpenFileMappingA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenFileMappingW;
-    stHook[nIndex].szFunc = "OpenFileMappingW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyHeapCreate;
-    stHook[nIndex].szFunc = "HeapCreate";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyHeapDestroy;
-    stHook[nIndex].szFunc = "HeapDestroy";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGlobalAlloc;
-    stHook[nIndex].szFunc = "GlobalAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGlobalReAlloc;
-    stHook[nIndex].szFunc = "GlobalReAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyGlobalFree;
-    stHook[nIndex].szFunc = "GlobalFree";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLocalAlloc;
-    stHook[nIndex].szFunc = "LocalAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLocalReAlloc;
-    stHook[nIndex].szFunc = "LocalReAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyLocalFree;
-    stHook[nIndex].szFunc = "LocalFree";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateProcessA;
-    stHook[nIndex].szFunc = "CreateProcessA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateProcessW;
-    stHook[nIndex].szFunc = "CreateProcessW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateProcessAsUserA;
-    stHook[nIndex].szFunc = "CreateProcessAsUserA";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateProcessAsUserW;
-    stHook[nIndex].szFunc = "CreateProcessAsUserW";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateProcessWithLogonW;
-    stHook[nIndex].szFunc = "CreateProcessWithLogonW";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateProcessWithTokenW;
-    stHook[nIndex].szFunc = "CreateProcessWithTokenW";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenProcess;
-    stHook[nIndex].szFunc = "OpenProcess";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateThread;
-    stHook[nIndex].szFunc = "CreateThread";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateRemoteThread;
-    stHook[nIndex].szFunc = "CreateRemoteThread";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyOpenThread;
-    stHook[nIndex].szFunc = "OpenThread";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateJobObjectA;
-    stHook[nIndex].szFunc = "CreateJobObjectA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateJobObjectW;
-    stHook[nIndex].szFunc = "CreateJobObjectW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateMailslotA;
-    stHook[nIndex].szFunc = "CreateMailslotA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateMailslotW;
-    stHook[nIndex].szFunc = "CreateMailslotW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreatePipe;
-    stHook[nIndex].szFunc = "CreatePipe";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateNamedPipeA;
-    stHook[nIndex].szFunc = "CreateNamedPipeA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateNamedPipeW;
-    stHook[nIndex].szFunc = "CreateNamedPipeW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegCreateKeyExA;
-    stHook[nIndex].szFunc = "RegCreateKeyExA";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegCreateKeyExW ;
-    stHook[nIndex].szFunc = "RegCreateKeyExW";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegCreateKeyTransactedA;
-    stHook[nIndex].szFunc = "RegCreateKeyTransactedA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegCreateKeyTransactedW;
-    stHook[nIndex].szFunc = "RegCreateKeyTransactedW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegOpenCurrentUser;
-    stHook[nIndex].szFunc = "RegOpenCurrentUser";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegOpenKeyA;
-    stHook[nIndex].szFunc = "RegOpenKeyA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegOpenKeyW;
-    stHook[nIndex].szFunc = "RegOpenKeyW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegOpenKeyExA;
-    stHook[nIndex].szFunc = "RegOpenKeyExA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegOpenKeyExW;
-    stHook[nIndex].szFunc = "RegOpenKeyExW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegOpenKeyTransactedA;
-    stHook[nIndex].szFunc = "RegOpenKeyTransactedA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegOpenKeyTransactedW;
-    stHook[nIndex].szFunc = "RegOpenKeyTransactedW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegOpenUserClassesRoot;
-    stHook[nIndex].szFunc = "RegOpenUserClassesRoot";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegCreateKeyA;
-    stHook[nIndex].szFunc = "RegCreateKeyA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegCreateKeyW;
-    stHook[nIndex].szFunc = "RegCreateKeyW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyRegCloseKey;
-    stHook[nIndex].szFunc = "RegCloseKey";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDuplicateHandle;
-    stHook[nIndex].szFunc = "DuplicateHandle";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCloseHandle;
-    stHook[nIndex].szFunc = "CloseHandle";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-     ////////////////////////////////start v3 additions//////////////////////////////////////////////////
-    // Timers
-    stHook[nIndex].pProc = (PROC)MyCreateTimerQueue;
-    stHook[nIndex].szFunc = "CreateTimerQueue";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyCreateTimerQueueTimer;
-    stHook[nIndex].szFunc = "CreateTimerQueueTimer";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDeleteTimerQueueTimer;
-    stHook[nIndex].szFunc = "DeleteTimerQueueTimer";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDeleteTimerQueueEx;
-    stHook[nIndex].szFunc = "DeleteTimerQueueEx";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDeleteTimerQueue;
-    stHook[nIndex].szFunc = "DeleteTimerQueue";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    //critical section
-    stHook[nIndex].pProc = (PROC)MyInitializeCriticalSection;
-    stHook[nIndex].szFunc = "InitializeCriticalSection";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyInitializeCriticalSectionEx;
-    stHook[nIndex].szFunc = "InitializeCriticalSectionEx";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyInitializeCriticalSectionAndSpinCount;
-    stHook[nIndex].szFunc = "InitializeCriticalSectionAndSpinCount";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)MyDeleteCriticalSection;
-    stHook[nIndex].szFunc = "DeleteCriticalSection";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
+    REGISTER_HOOK(CreateTimerQueue,Kernel32 );
+    REGISTER_HOOK(CreateTimerQueueTimer,Kernel32 );
+    REGISTER_HOOK(DeleteTimerQueueTimer,Kernel32 );
+    REGISTER_HOOK(DeleteTimerQueueEx,Kernel32 );
+    REGISTER_HOOK(DeleteTimerQueue,Kernel32 );
+
+    REGISTER_HOOK(InitializeCriticalSection,Kernel32 );
+    REGISTER_HOOK(InitializeCriticalSectionEx,Kernel32 );
+    REGISTER_HOOK(InitializeCriticalSectionAndSpinCount,Kernel32 );
+    REGISTER_HOOK(DeleteCriticalSection,Kernel32 );
+
+   
     ////////////////////////////////end v3 additions//////////////////////////////////////////////////
 
     ASSERT( HANDLE_FUNC_COUNT == nIndex );
-    HookDynamicLoadedFun( nIndex, stHook );
+    HookDynamicLoadedFun( HANDLE_FUNC_COUNT, g_arrHookedFunctions.GetData() );
 
 }
 
-void RestoreHandleAlloc()
-{
-    HOOKFUNCDESC stHook[HANDLE_FUNC_COUNT] = {0};
-    int nIndex = 0;
-    stHook[nIndex].pProc = (PROC)pOrgCreateEventA;
-    stHook[nIndex].szFunc = "CreateEventA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateEventW;
-    stHook[nIndex].szFunc = "CreateEventW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateEventExA;
-    stHook[nIndex].szFunc = "CreateEventExA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateEventExW;
-    stHook[nIndex].szFunc = "CreateEventExW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenEventA;
-    stHook[nIndex].szFunc = "OpenEventA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenEventW;
-    stHook[nIndex].szFunc = "OpenEventW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateMutexA;
-    stHook[nIndex].szFunc = "CreateMutexA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateMutexW;
-    stHook[nIndex].szFunc = "CreateMutexW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateMutexExA;
-    stHook[nIndex].szFunc = "CreateMutexExA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateMutexExW;
-    stHook[nIndex].szFunc = "CreateMutexExW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenMutexA;
-    stHook[nIndex].szFunc = "OpenMutexA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenMutexW;
-    stHook[nIndex].szFunc = "OpenMutexW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateSemaphoreA;
-    stHook[nIndex].szFunc = "CreateSemaphoreA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateSemaphoreW;
-    stHook[nIndex].szFunc = "CreateSemaphoreW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateSemaphoreExA;
-    stHook[nIndex].szFunc = "CreateSemaphoreExA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateSemaphoreExW;
-    stHook[nIndex].szFunc = "CreateSemaphoreExW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenSemaphoreA;
-    stHook[nIndex].szFunc = "OpenSemaphoreA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenSemaphoreW;
-    stHook[nIndex].szFunc = "OpenSemaphoreW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateWaitableTimerA;
-    stHook[nIndex].szFunc = "CreateWaitableTimerA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateWaitableTimerW;
-    stHook[nIndex].szFunc = "CreateWaitableTimerW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateWaitableTimerExA;
-    stHook[nIndex].szFunc = "CreateWaitableTimerExA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateWaitableTimerExW;
-    stHook[nIndex].szFunc = "CreateWaitableTimerExW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenWaitableTimerA;
-    stHook[nIndex].szFunc = "OpenWaitableTimerA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenWaitableTimerW;
-    stHook[nIndex].szFunc = "OpenWaitableTimerW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateFileA;
-    stHook[nIndex].szFunc = "CreateFileA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateFileW;
-    stHook[nIndex].szFunc = "CreateFileW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateFileTransactedA;
-    stHook[nIndex].szFunc = "CreateFileTransactedA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateFileTransactedW;
-    stHook[nIndex].szFunc = "CreateFileTransactedW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindFirstFileA;
-    stHook[nIndex].szFunc = "FindFirstFileA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindFirstFileW;
-    stHook[nIndex].szFunc = "FindFirstFileW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindFirstFileExA;
-    stHook[nIndex].szFunc = "FindFirstFileExA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindFirstFileExW;
-    stHook[nIndex].szFunc = "FindFirstFileExW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindFirstFileNameTransactedW ;
-    stHook[nIndex].szFunc = "FindFirstFileNameTransactedW ";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindFirstFileNameW;
-    stHook[nIndex].szFunc = "FindFirstFileNameW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindFirstFileTransactedA;
-    stHook[nIndex].szFunc = "FindFirstFileTransactedA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindFirstFileTransactedW;
-    stHook[nIndex].szFunc = "FindFirstFileTransactedW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindFirstStreamTransactedW;
-    stHook[nIndex].szFunc = "FindFirstStreamTransactedW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindFirstStreamW;
-    stHook[nIndex].szFunc = "FindFirstStreamW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindClose;
-    stHook[nIndex].szFunc = "FindClose";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenFileById;
-    stHook[nIndex].szFunc = "OpenFileById";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgReOpenFile;
-    stHook[nIndex].szFunc = "ReOpenFile";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateIoCompletionPort;
-    stHook[nIndex].szFunc = "CreateIoCompletionPort";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateRestrictedToken;
-    stHook[nIndex].szFunc = "CreateRestrictedToken";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDuplicateToken;
-    stHook[nIndex].szFunc = "DuplicateToken";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDuplicateTokenEx;
-    stHook[nIndex].szFunc = "DuplicateTokenEx";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenProcessToken;
-    stHook[nIndex].szFunc = "OpenProcessToken";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenThreadToken;
-    stHook[nIndex].szFunc = "OpenThreadToken";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindFirstChangeNotificationA;
-    stHook[nIndex].szFunc = "FindFirstChangeNotificationA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindFirstChangeNotificationW;
-    stHook[nIndex].szFunc = "FindFirstChangeNotificationW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgFindCloseChangeNotification;
-    stHook[nIndex].szFunc = "FindCloseChangeNotification";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateMemoryResourceNotification;
-    stHook[nIndex].szFunc = "CreateMemoryResourceNotification";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateFileMappingA;
-    stHook[nIndex].szFunc = "CreateFileMappingA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateFileMappingW;
-    stHook[nIndex].szFunc = "CreateFileMappingW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateFileMappingNumaA;
-    stHook[nIndex].szFunc = "CreateFileMappingNumaA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateFileMappingNumaW;
-    stHook[nIndex].szFunc = "CreateFileMappingNumaW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenFileMappingA;
-    stHook[nIndex].szFunc = "OpenFileMappingA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenFileMappingW;
-    stHook[nIndex].szFunc = "OpenFileMappingW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgHeapCreate;
-    stHook[nIndex].szFunc = "HeapCreate";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgHeapDestroy;
-    stHook[nIndex].szFunc = "HeapDestroy";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGlobalAlloc;
-    stHook[nIndex].szFunc = "GlobalAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGlobalReAlloc;
-    stHook[nIndex].szFunc = "GlobalReAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgGlobalFree;
-    stHook[nIndex].szFunc = "GlobalFree";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLocalAlloc;
-    stHook[nIndex].szFunc = "LocalAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLocalReAlloc;
-    stHook[nIndex].szFunc = "LocalReAlloc";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgLocalFree;
-    stHook[nIndex].szFunc = "LocalFree";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateProcessA;
-    stHook[nIndex].szFunc = "CreateProcessA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateProcessW;
-    stHook[nIndex].szFunc = "CreateProcessW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateProcessAsUserA;
-    stHook[nIndex].szFunc = "CreateProcessAsUserA";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateProcessAsUserW;
-    stHook[nIndex].szFunc = "CreateProcessAsUserW";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateProcessWithLogonW;
-    stHook[nIndex].szFunc = "CreateProcessWithLogonW";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateProcessWithTokenW;
-    stHook[nIndex].szFunc = "CreateProcessWithTokenW";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenProcess;
-    stHook[nIndex].szFunc = "OpenProcess";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateThread;
-    stHook[nIndex].szFunc = "CreateThread";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateRemoteThread;
-    stHook[nIndex].szFunc = "CreateRemoteThread";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgOpenThread;
-    stHook[nIndex].szFunc = "OpenThread";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateJobObjectA;
-    stHook[nIndex].szFunc = "CreateJobObjectA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateJobObjectW;
-    stHook[nIndex].szFunc = "CreateJobObjectW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateMailslotA;
-    stHook[nIndex].szFunc = "CreateMailslotA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateMailslotW;
-    stHook[nIndex].szFunc = "CreateMailslotW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreatePipe;
-    stHook[nIndex].szFunc = "CreatePipe";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateNamedPipeA;
-    stHook[nIndex].szFunc = "CreateNamedPipeA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateNamedPipeW;
-    stHook[nIndex].szFunc = "CreateNamedPipeW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegCreateKeyExA;
-    stHook[nIndex].szFunc = "RegCreateKeyExA";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegCreateKeyExW ;
-    stHook[nIndex].szFunc = "RegCreateKeyExW";
-    stHook[nIndex].lpszDllName = _T("Advapi32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegCreateKeyTransactedA;
-    stHook[nIndex].szFunc = "RegCreateKeyTransactedA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegCreateKeyTransactedW;
-    stHook[nIndex].szFunc = "RegCreateKeyTransactedW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegOpenCurrentUser;
-    stHook[nIndex].szFunc = "RegOpenCurrentUser";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegOpenKeyA;
-    stHook[nIndex].szFunc = "RegOpenKeyA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegOpenKeyW;
-    stHook[nIndex].szFunc = "RegOpenKeyW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegOpenKeyExA;
-    stHook[nIndex].szFunc = "RegOpenKeyExA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegOpenKeyExW;
-    stHook[nIndex].szFunc = "RegOpenKeyExW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegOpenKeyTransactedA;
-    stHook[nIndex].szFunc = "RegOpenKeyTransactedA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegOpenKeyTransactedW;
-    stHook[nIndex].szFunc = "RegOpenKeyTransactedW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegOpenUserClassesRoot;
-    stHook[nIndex].szFunc = "RegOpenUserClassesRoot";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegCreateKeyA;
-    stHook[nIndex].szFunc = "RegCreateKeyA";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegCreateKeyW;
-    stHook[nIndex].szFunc = "RegCreateKeyW";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgRegCloseKey;
-    stHook[nIndex].szFunc = "RegCloseKey";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDuplicateHandle;
-    stHook[nIndex].szFunc = "DuplicateHandle";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCloseHandle;
-    stHook[nIndex].szFunc = "CloseHandle";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-     
-    ////////////////////////////////start v3 additions//////////////////////////////////////////////////
-    // Timers
-    stHook[nIndex].pProc = (PROC)pOrgCreateTimerQueue;
-    stHook[nIndex].szFunc = "CreateTimerQueue";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgCreateTimerQueueTimer;
-    stHook[nIndex].szFunc = "CreateTimerQueueTimer";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDeleteTimerQueueTimer;
-    stHook[nIndex].szFunc = "DeleteTimerQueueTimer";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDeleteTimerQueueEx;
-    stHook[nIndex].szFunc = "DeleteTimerQueueEx";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDeleteTimerQueue;
-    stHook[nIndex].szFunc = "DeleteTimerQueue";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-     //critical section
-    stHook[nIndex].pProc = (PROC)pOrgInitializeCriticalSection;
-    stHook[nIndex].szFunc = "InitializeCriticalSection";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgInitializeCriticalSectionEx;
-    stHook[nIndex].szFunc = "InitializeCriticalSectionEx";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgInitializeCriticalSectionAndSpinCount;
-    stHook[nIndex].szFunc = "InitializeCriticalSectionAndSpinCount";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-
-    stHook[nIndex].pProc = (PROC)pOrgDeleteCriticalSection;
-    stHook[nIndex].szFunc = "DeleteCriticalSection";
-    stHook[nIndex].lpszDllName = _T("Kernel32.dll");
-    nIndex++;
-    ////////////////////////////////end v3 additions//////////////////////////////////////////////////
-    ASSERT( HANDLE_FUNC_COUNT == nIndex );
-    HookDynamicLoadedFun( nIndex, stHook );
-}
 
 DWORD WINAPI DumpController( LPVOID pParam )
 {
@@ -4694,7 +2511,7 @@ DWORD WINAPI DumpController( LPVOID pParam )
     ConfigDlg dlg;
     dlg.Create( ConfigDlg::IDD );
     dlg.ShowWindow( SW_SHOW );
-    if( IDOK != dlg.RunModalLoop())
+    if( IDOK != dlg.RunModalLoop() && !g_IS_TEST_APP )
     {
 // 		HMODULE hHookDll = GetModuleHandle( _T("HookDll.dll"));
 // 		FreeLibrary( hHookDll );
@@ -4713,14 +2530,14 @@ DWORD WINAPI DumpController( LPVOID pParam )
     {
         HookGDIAlloc();
     }
-	else if( HT_HANDLE == g_HookType )
+    else if( HT_HANDLE == g_HookType )
     {
         HookHandleAlloc();
     }
-	else
-	{
-		//error
-	}
+    else
+    {
+        //error
+    }
  
     
     HANDLE hDumpEvent	 = CreateEvent( 0, TRUE, FALSE, DUMP_EVENT );
@@ -5046,25 +2863,16 @@ void EmptyLeakMap()
     }
     m_MemMap.RemoveAll();
 }
+
+
 int CHookDllApp::ExitInstance() 
 {
     try
     {   
         // Restore the hooks       
-        g_bHooked = false;		
+        g_bHooked = false;
         EmptyLeakMap();
-        if( HT_MEMORY == g_HookType )
-        {
-            RestoreMemHooks();
-        }
-        else if( HT_GDI == g_HookType )
-        {
-            RestoreGDIHook();
-        }
-        else if( HT_HANDLE == g_HookType )
-        {
-            RestoreHandleAlloc();
-        }
+        RestoreHooks();
     }
     catch (...)
     {
@@ -5072,4 +2880,31 @@ int CHookDllApp::ExitInstance()
     }
     //DumpLeak();
     return CWinApp::ExitInstance();
+}
+
+/////////////////////////////////////////////////////////////////////////////////////
+
+HOOK_DLL_EXPORT bool IsLeakDetected( void* pObject )
+{
+    try
+    {
+        if( !pObject )
+        {
+            return false;
+        }
+        MEM_INFO stInfo;
+        if( m_MemMap.Lookup( pObject, stInfo ))
+        {
+            return true;
+        }
+    }
+    catch(...)
+    {
+    }
+    return false;
+}
+
+HOOK_DLL_EXPORT void SetHookType(HOOK_TYPE_e eType )
+{
+    g_HookType = eType;
 }

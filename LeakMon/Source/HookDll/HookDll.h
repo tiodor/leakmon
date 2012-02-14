@@ -82,6 +82,15 @@ void CreateCallStack( LPVOID lpMem, SIZE_T dwBytes );
 void RemovCallStack( LPVOID lpMem );
 
 
+#ifdef HOOK_DLL_SRC
+#define HOOK_DLL_EXPORT __declspec(dllexport)
+#else
+#define HOOK_DLL_EXPORT __declspec(dllimport)
+#endif
+
+HOOK_DLL_EXPORT bool IsLeakDetected(void* pObject );
+HOOK_DLL_EXPORT void SetHookType(HOOK_TYPE_e eType );
+
 /////////////////////////////////////////////////////////////////////////////
 
 //{{AFX_INSERT_LOCATION}}
