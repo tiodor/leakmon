@@ -1,12 +1,3 @@
-/**
- * Copyright(c) 2007-2008 TOSHIBA Medical Systems Corporation, All Rights
- * Reserved.
- *
- * DumpTree.h - Contains Declaration of the class CDumpTreeApp
- *
- * @author :    Vishnu.P
- * @version:    1.0            Date:  2008-06-13
- */
 
 
 #if !defined(AFX_DUMPTREE_H__INCLUDED_)
@@ -22,15 +13,6 @@
 
 #include "resource.h"       // main symbols
 
-/**
- * Copyright(c) 2007-2008 TOSHIBA Medical Systems Corporation, All Rights
- * Reserved.
- *
- * CDumpTreeApp - App Class
- *
- * @author :    Vishnu.P
- * @version:    1.0            Date:  2008-06-13
- */
 class CDumpTreeApp : public CWinApp
 {
 public:

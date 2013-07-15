@@ -1,12 +1,4 @@
-/**
- * Copyright(c) 2007-2008 TOSHIBA Medical Systems Corporation, All Rights
- * Reserved.
- *
- * FilterDialog.h - This file contains Implementation of the class FilterDialog
- *
- * @author :    Vishnu.P
- * @version:    1.0            Date:  2008-06-16
- */
+
 
 #if !defined(AFX_FILTERDIALOG_H__INCLUDED_)
 #define AFX_FILTERDIALOG_H__INCLUDED_
@@ -15,15 +7,7 @@
 #pragma once
 #endif // _MSC_VER > 1000
 
-/**
- * Copyright(c) 2007-2008 TOSHIBA Medical Systems Corporation, All Rights
- * Reserved.
- *
- * FilterDialog - Class for Filter Dialog
- *
- * @author :    Vishnu.P
- * @version:    1.0            Date:  2008-06-16
- */
+
 class FilterDialog : public CDialog
 {
 // Construction

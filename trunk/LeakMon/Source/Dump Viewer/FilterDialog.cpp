@@ -1,12 +1,3 @@
-/**
- * Copyright(c) 2007-2008 TOSHIBA Medical Systems Corporation, All Rights
- * Reserved.
- *
- * FilterDialog.cpp - This file contains implementation of the class FilterDialog
- *
- * @author :    Vishnu.P
- * @version:    1.0            Date:  2008-06-16
- */
 
 #include "stdafx.h"
 #include "dumptree.h"
