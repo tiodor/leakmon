@@ -1,12 +1,4 @@
-/**
- * Copyright(c) 2007-2008 TOSHIBA Medical Systems Corporation, All Rights
- * Reserved.
- *
- * DumpTreeView.h - Contains declaration of the class CDumpTreeView
- *
- * @author :    Vishnu.P
- * @version:    1.0            Date:  2008-06-13
- */
+
 
 #include "DumpTreeDoc.h"
 #if !defined(AFX_DUMPTREEVIEW_H__INCLUDED_)
@@ -16,15 +8,7 @@
 #pragma once
 #endif // _MSC_VER > 1000
 
-/**
- * Copyright(c) 2007-2008 TOSHIBA Medical Systems Corporation, All Rights
- * Reserved.
- *
- * CDumpTreeView - View Class
- *
- * @author :    Vishnu.P
- * @version:    1.0            Date:  2008-06-13
- */
+
 class CDumpTreeView : public CTreeView
 {
 protected: // create from serialization only

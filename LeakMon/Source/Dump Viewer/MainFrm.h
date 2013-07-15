@@ -1,12 +1,3 @@
-/**
- * Copyright(c) 2007-2008 TOSHIBA Medical Systems Corporation, All Rights
- * Reserved.
- *
- * MainFrm.h - Contains declaration of the class CMainFrame
- *
- * @author :    Vishnu.P
- * @version:    1.0            Date:  2008-06-13
- */
 
 #if !defined(AFX_MAINFRM_H__INCLUDED_)
 #define AFX_MAINFRM_H__INCLUDED_

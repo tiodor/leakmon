@@ -1,12 +1,3 @@
-/**
- * Copyright(c) 2007-2008 TOSHIBA Medical Systems Corporation, All Rights
- * Reserved.
- *
- * MainFrm.cpp - Contains Implementation of the class CMainFrame
- *
- * @author :    Vishnu.P
- * @version:    1.0            Date:  2008-06-13
- */
 
 
 #include "stdafx.h"

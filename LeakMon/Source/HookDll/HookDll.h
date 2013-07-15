@@ -83,9 +83,9 @@ void RemovCallStack( LPVOID lpMem );
 
 
 #ifdef HOOK_DLL_SRC
-#define HOOK_DLL_EXPORT __declspec(dllexport)
+#define HOOK_DLL_EXPORT extern "C" __declspec(dllexport)
 #else
-#define HOOK_DLL_EXPORT __declspec(dllimport)
+#define HOOK_DLL_EXPORT extern "C" __declspec(dllimport)
 #endif
 
 HOOK_DLL_EXPORT bool IsLeakDetected(void* pObject );

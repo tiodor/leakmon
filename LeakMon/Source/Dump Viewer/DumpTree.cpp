@@ -1,12 +1,3 @@
-/**
-* Copyright(c) 2007-2008 TOSHIBA Medical Systems Corporation, All Rights
-* Reserved.
-*
-* DumpTree.cpp - Contains Implementation of the class CDumpTreeApp
-*
-* @author :    Vishnu.P
-* @version:    1.0            Date:  2008-06-13
-*/
 
 
 #include "stdafx.h"
@@ -109,15 +100,6 @@ BOOL CDumpTreeApp::InitInstance()
 }
 
 
-/**
- * Copyright(c) 2007-2008 TOSHIBA Medical Systems Corporation, All Rights
- * Reserved.
- *
- * CAboutDlg - About Dialog Class
- *
- * @author :    Vishnu.P
- * @version:    1.0            Date:  2008-06-13
- */
 class CAboutDlg : public CDialog
 {
 public:
