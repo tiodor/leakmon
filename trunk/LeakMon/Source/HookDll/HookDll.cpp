@@ -2518,6 +2518,7 @@ DWORD WINAPI DumpController( LPVOID pParam )
         return 0;
     }
 
+    dlg.DestroyWindow();
 
     m_MemMap.InitHashTable( 2001 );
 
