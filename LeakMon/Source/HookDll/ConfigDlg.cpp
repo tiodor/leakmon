@@ -108,6 +108,7 @@ BOOL ConfigDlg::OnInitDialog()
     CString csExeName;
     GetModuleFileName( 0, csExeName.GetBuffer( MAX_PATH), MAX_PATH );
     csExeName.ReleaseBuffer();
+    csExeName = csExeName.MakeLower();
     csExeName.Replace( _T(".exe"), _T("Mem.ini"));
     if( PathFileExists( csExeName ))
     {
@@ -201,6 +202,7 @@ void ConfigDlg::LoadSymbols()
         CString csExeName;
         GetModuleFileName( 0, csExeName.GetBuffer( MAX_PATH), MAX_PATH );
         csExeName.ReleaseBuffer();
+        csExeName = csExeName.MakeLower();
         csExeName.Replace( _T(".exe"), _T("Mem.ini"));
         CStdioFile File;
         if( !File.Open( csExeName, CFile::modeCreate|CFile::modeWrite ))
@@ -241,7 +243,7 @@ LoadDll:
         else
         {
             MessageBox( "Your application has already loaded dbghelp.dll from " + csLoadedDll +
-                "Please confirm that the symsrv.dll exists in th same folder.\n"
+                " Please confirm that the symsrv.dll exists in th same folder.\n"
                 "Otherwise symbol server will not work", 
                 "Warning", MB_OK );
         }
@@ -291,11 +293,13 @@ LoadDll:
         }
         
     }
+
+    SymCleanup(GetCurrentProcess());
     CString csWholePath = m_csPath;
     csWholePath.TrimRight( ';' );
     DWORD dwOption = SymGetOptions();
     dwOption |= SYMOPT_CASE_INSENSITIVE|SYMOPT_LOAD_LINES|SYMOPT_FAIL_CRITICAL_ERRORS|
-                SYMOPT_EXACT_SYMBOLS|SYMOPT_UNDNAME;    
+                SYMOPT_LOAD_ANYTHING|SYMOPT_UNDNAME;    
     SymSetOptions( dwOption );
     CWinThread* pThread = AfxBeginThread( ThreadEntry, this );
     HANDLE hThread = pThread->m_hThread;
@@ -303,7 +307,8 @@ LoadDll:
     
     BOOL fInvadeProcess = (0 == pSymRefreshModuleList)?TRUE:FALSE;
 
-    SymInitialize(GetCurrentProcess(), (LPTSTR)csWholePath.operator LPCTSTR() , fInvadeProcess );
+    
+    BOOL bRet = SymInitialize(GetCurrentProcess(), (LPTSTR)csWholePath.operator LPCTSTR() , fInvadeProcess );
     SymRegisterCallback64( GetCurrentProcess(),SymRegisterCallbackProc64,(ULONG64 )this );
     while( !m_ProgressDlg.m_hWnd )// wait untill the dialog is created
     {
