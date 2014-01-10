@@ -57,6 +57,8 @@ ON_REGISTERED_MESSAGE( m_FindDialogMessage, OnFindDialogMessage )
 ON_COMMAND(ID_FILE_PRINT, CTreeView::OnFilePrint)
 ON_COMMAND(ID_FILE_PRINT_DIRECT, CTreeView::OnFilePrint)
 ON_COMMAND(ID_FILE_PRINT_PREVIEW, CTreeView::OnFilePrintPreview)
+ON_COMMAND(ID_OPTIONS_MINIMIZEONDOUBLECLICK, &CDumpTreeView::OnOptionsMinimizeondoubleclick)
+ON_UPDATE_COMMAND_UI(ID_OPTIONS_MINIMIZEONDOUBLECLICK, &CDumpTreeView::OnUpdateOptionsMinimizeondoubleclick)
 END_MESSAGE_MAP()
 
 
@@ -265,7 +267,7 @@ void OpenEditor( CString csFileName_i, int nLineNo )
  * @see         Nil
  * @since       1.0
  */
-CDumpTreeView::CDumpTreeView() : m_pFindDlg( 0 )
+CDumpTreeView::CDumpTreeView() : m_pFindDlg( 0 ), m_bMinimizeOnDBClk(false)
 {
 }
 
@@ -1105,7 +1107,9 @@ void CDumpTreeView::OnLButtonDblClk(UINT nFlags, CPoint point)
             csFileName = csNewPath;
         }        
     }
-    AfxGetMainWnd()->ShowWindow( SW_MINIMIZE );
+
+    if( m_bMinimizeOnDBClk )
+        AfxGetMainWnd()->ShowWindow( SW_MINIMIZE );
 
 	OpenEditor( csFileName, nLineNum );
 
@@ -1366,4 +1370,15 @@ void CDumpTreeView::OnRButtonDown(UINT nFlags, CPoint point)
 	
     ClientToScreen( &point );
     ObjMenu.TrackPopupMenu( TPM_LEFTALIGN , point.x, point.y, this );
+}
+
+void CDumpTreeView::OnOptionsMinimizeondoubleclick()
+{
+    m_bMinimizeOnDBClk = !m_bMinimizeOnDBClk;
+}
+
+
+void CDumpTreeView::OnUpdateOptionsMinimizeondoubleclick(CCmdUI *pCmdUI)
+{
+    pCmdUI->SetCheck( m_bMinimizeOnDBClk );
 }

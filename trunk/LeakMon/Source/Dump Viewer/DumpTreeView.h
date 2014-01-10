@@ -99,6 +99,11 @@ private:
 
     CFont m_TreeFont;
     CImageList m_TreeImgs;
+
+    bool m_bMinimizeOnDBClk;
+public:
+    afx_msg void OnOptionsMinimizeondoubleclick();
+    afx_msg void OnUpdateOptionsMinimizeondoubleclick(CCmdUI *pCmdUI);
 };
 
 #ifndef _DEBUG  // debug version in DumpTreeView.cpp

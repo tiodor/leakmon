@@ -121,6 +121,10 @@ BEGIN
         MENUITEM "&Toolbar",                    ID_VIEW_TOOLBAR
         MENUITEM "&Status Bar",                 ID_VIEW_STATUS_BAR
     END
+    POPUP "Options"
+    BEGIN
+        MENUITEM "Minimize on DBClick",         ID_OPTIONS_MINIMIZEONDOUBLECLICK
+    END
     POPUP "&Help"
     BEGIN
         MENUITEM "&About DumpTree...",          ID_APP_ABOUT
