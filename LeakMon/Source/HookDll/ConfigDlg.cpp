@@ -297,7 +297,7 @@ LoadDll:
     SymCleanup(GetCurrentProcess());
     CString csWholePath = m_csPath;
     csWholePath.TrimRight( ';' );
-    DWORD dwOption = SymGetOptions();
+    DWORD dwOption = 0;//SymGetOptions();
     dwOption |= SYMOPT_CASE_INSENSITIVE|SYMOPT_LOAD_LINES|SYMOPT_FAIL_CRITICAL_ERRORS|
                 SYMOPT_LOAD_ANYTHING|SYMOPT_UNDNAME;    
     SymSetOptions( dwOption );
